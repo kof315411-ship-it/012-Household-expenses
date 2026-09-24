@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>家庭照顧與家用花費紀錄</title>
+  
+  <!-- Mobile Web App Capable Meta Tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="家用紀錄">
+  <meta name="theme-color" content="#2563eb">
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-icon">🏠</div>
+        <div>
+          <h1 class="brand-title">家庭與照顧開銷</h1>
+          <div class="brand-sub">收支查閱與記帳管理</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary btn-sm" id="btnExport" title="匯出 Excel/CSV 資料">📥 匯出</button>
+        <button class="btn btn-secondary btn-sm" id="btnBackup" title="備份或重設資料">⚙️ 設定</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Desktop Navigation -->
+  <nav class="desktop-nav">
+    <div class="desktop-nav-inner">
+      <button class="nav-tab-btn active" data-tab="dashboard">📊 收支總覽</button>
+      <button class="nav-tab-btn" data-tab="medical">🏥 就醫、照顧花費</button>
+      <button class="nav-tab-btn" data-tab="household">🏠 家用繳款紀錄</button>
+      <button class="nav-tab-btn" data-tab="transfers">💰 老哥轉帳紀錄</button>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- TAB 1: 收支總覽儀表板 -->
+    <section id="tab-dashboard" class="tab-panel active">
+      <!-- 4 大 KPI 卡片 -->
+      <div class="kpi-grid">
+        <div class="kpi-card inflow">
+          <div class="kpi-label">💰 老哥轉帳累計</div>
+          <div class="kpi-value" id="kpiTransfer">$0</div>
+          <div class="kpi-sub" id="kpiTransferCount">共 0 筆轉入</div>
+        </div>
+        <div class="kpi-card care">
+          <div class="kpi-label">🏥 就醫照顧總計</div>
+          <div class="kpi-value" id="kpiMedical">$0</div>
+          <div class="kpi-sub" id="kpiMedicalCount">共 0 筆支出 (含老媽)</div>
+        </div>
+        <div class="kpi-card house">
+          <div class="kpi-label">🏠 家用花費總計</div>
+          <div class="kpi-value" id="kpiHousehold">$0</div>
+          <div class="kpi-sub" id="kpiHouseholdCount">共 0 筆水電房貸等</div>
+        </div>
+        <div class="kpi-card balance">
+          <div class="kpi-label">⚖️ 累計總結餘</div>
+          <div class="kpi-value" id="kpiBalance">$0</div>
+          <div class="kpi-sub">轉帳款 - 支出總額</div>
+        </div>
+      </div>
+
+      <!-- 圖表與分析 -->
+      <div class="charts-grid">
+        <!-- 年度收支走勢對比 -->
+        <div class="chart-card">
+          <div class="chart-title">
+            <span>📅 年度收支趨勢 (新台幣)</span>
+          </div>
+          <div class="bar-chart-wrap" id="yearlyChart">
+            <!-- 動態繪製長條圖 -->
+          </div>
+        </div>
+
+        <!-- 支出類別佔比排行榜 -->
+        <div class="chart-card">
+          <div class="chart-title">
+            <span>🏷️ 支出類別分佈 TOP 6</span>
+          </div>
+          <div class="breakdown-list" id="categoryRanking">
+            <!-- 動態填入排行榜 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 近期最新動態 -->
+      <div class="card" style="margin-top: 16px;">
+        <div class="section-head">
+          <div class="section-title">⏱️ 最近 5 筆紀錄</div>
+        </div>
+        <div class="record-list" id="recentActivityList"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: 就醫、照顧花費 -->
+    <section id="tab-medical" class="tab-panel">
+      <div class="section-head">
+        <div class="section-title">🏥 就醫、照顧花費</div>
+        <button class="form-toggle-btn" id="btnToggleMedForm">
+          <span class="icon">➕</span> 新增就醫照顧紀錄
+        </button>
+      </div>
+
+      <!-- 新增紀錄表單 -->
+      <div class="entry-form-card" id="formMedCard">
+        <form id="formMed">
+          <div class="form-grid grid-4">
+            <div class="form-group">
+              <label for="medDate">選擇時間 *</label>
+              <input type="date" id="medDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label for="medItem">項目 (下拉選單) *</label>
+              <select id="medItem" class="form-control" required>
+                <option value="看診">看診</option>
+                <option value="長照費" selected>長照費</option>
+                <option value="住院費">住院費</option>
+                <option value="看護費">看護費</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="medAmount">輸入金額 (NT$) *</label>
+              <input type="number" id="medAmount" class="form-control" placeholder="例: 35000" min="0" step="1" required>
+            </div>
+            <div class="form-group">
+              <label for="medNote">備註 (老媽款項請註記「老媽」)</label>
+              <input type="text" id="medNote" class="form-control" placeholder="例如: 9月長照費、老媽">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnCancelMed">取消</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存花費紀錄</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 搜尋與篩選列 -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchMed" placeholder="搜尋項目、備註、老媽...">
+        </div>
+        <div class="filter-selects">
+          <select id="filterMedItem" class="filter-select">
+            <option value="ALL">全部項目</option>
+            <option value="看診">看診</option>
+            <option value="長照費">長照費</option>
+            <option value="住院費">住院費</option>
+            <option value="看護費">看護費</option>
+            <option value="其他">其他</option>
+          </select>
+          <select id="filterMedYear" class="filter-select">
+            <option value="ALL">所有年份</option>
+            <option value="2026">2026 年</option>
+            <option value="2025">2025 年</option>
+            <option value="2024">2024 年</option>
+            <option value="2023">2023 年</option>
+            <option value="2022">2022 年</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 統計資訊列 -->
+      <div class="results-summary">
+        <div>查詢結果：<strong id="medResultCount">0</strong> 筆</div>
+        <div>小計：<span class="results-total" id="medResultTotal">NT$ 0</span></div>
+      </div>
+
+      <!-- 資料清單 -->
+      <div class="record-list" id="medRecordList"></div>
+    </section>
+
+    <!-- TAB 3: 家用花費繳款紀錄 -->
+    <section id="tab-household" class="tab-panel">
+      <div class="section-head">
+        <div class="section-title">🏠 家用花費繳款紀錄</div>
+        <button class="form-toggle-btn" id="btnToggleHouseForm">
+          <span class="icon">➕</span> 新增家用繳款紀錄
+        </button>
+      </div>
+
+      <!-- 新增紀錄表單 -->
+      <div class="entry-form-card" id="formHouseCard">
+        <form id="formHouse">
+          <div class="form-grid grid-4">
+            <div class="form-group">
+              <label for="houseDate">選擇時間 *</label>
+              <input type="date" id="houseDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label for="houseItem">項目 (下拉選單) *</label>
+              <select id="houseItem" class="form-control" required>
+                <option value="台電">台電</option>
+                <option value="中華電信">中華電信</option>
+                <option value="瓦斯">瓦斯</option>
+                <option value="北水">北水</option>
+                <option value="房貸轉帳">房貸轉帳</option>
+                <option value="墓園管理費">墓園管理費</option>
+                <option value="其他">其他</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="houseAmount">輸入金額 (NT$) *</label>
+              <input type="number" id="houseAmount" class="form-control" placeholder="例: 1500" min="0" step="1" required>
+            </div>
+            <div class="form-group">
+              <label for="houseNote">備註</label>
+              <input type="text" id="houseNote" class="form-control" placeholder="備註說明 (選填)">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnCancelHouse">取消</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存繳款紀錄</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 搜尋與篩選列 -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchHouse" placeholder="搜尋項目、備註...">
+        </div>
+        <div class="filter-selects">
+          <select id="filterHouseItem" class="filter-select">
+            <option value="ALL">全部項目</option>
+            <option value="台電">台電</option>
+            <option value="中華電信">中華電信</option>
+            <option value="瓦斯">瓦斯</option>
+            <option value="北水">北水</option>
+            <option value="房貸轉帳">房貸轉帳</option>
+            <option value="墓園管理費">墓園管理費</option>
+            <option value="其他">其他</option>
+          </select>
+          <select id="filterHouseYear" class="filter-select">
+            <option value="ALL">所有年份</option>
+            <option value="2026">2026 年</option>
+            <option value="2025">2025 年</option>
+            <option value="2024">2024 年</option>
+            <option value="2023">2023 年</option>
+            <option value="2022">2022 年</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 統計資訊列 -->
+      <div class="results-summary">
+        <div>查詢結果：<strong id="houseResultCount">0</strong> 筆</div>
+        <div>小計：<span class="results-total" id="houseResultTotal">NT$ 0</span></div>
+      </div>
+
+      <!-- 資料清單 -->
+      <div class="record-list" id="houseRecordList"></div>
+    </section>
+
+    <!-- TAB 4: 老哥轉帳紀錄 -->
+    <section id="tab-transfers" class="tab-panel">
+      <div class="section-head">
+        <div class="section-title">💰 老哥轉帳紀錄 (換匯後金額 NTD)</div>
+        <button class="form-toggle-btn" id="btnToggleTransferForm">
+          <span class="icon">➕</span> 新增轉帳紀錄
+        </button>
+      </div>
+
+      <!-- 新增紀錄表單 -->
+      <div class="entry-form-card" id="formTransferCard">
+        <form id="formTransfer">
+          <div class="form-grid grid-3">
+            <div class="form-group">
+              <label for="transferDate">選擇日期 *</label>
+              <input type="date" id="transferDate" class="form-control" required>
+            </div>
+            <div class="form-group">
+              <label for="transferAmount">金額 NTD (換匯後台幣) *</label>
+              <input type="number" id="transferAmount" class="form-control" placeholder="例: 75000" min="0" step="1" required>
+            </div>
+            <div class="form-group">
+              <label for="transferNote">備註 (選填)</label>
+              <input type="text" id="transferNote" class="form-control" placeholder="說明">
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="btnCancelTransfer">取消</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存轉帳紀錄</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- 搜尋與篩選列 -->
+      <div class="filter-bar">
+        <div class="search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="searchTransfer" placeholder="搜尋日期或備註...">
+        </div>
+        <div class="filter-selects">
+          <select id="filterTransferYear" class="filter-select">
+            <option value="ALL">所有年份</option>
+            <option value="2026">2026 年</option>
+            <option value="2025">2025 年</option>
+            <option value="2024">2024 年</option>
+            <option value="2023">2023 年</option>
+            <option value="2022">2022 年</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- 統計資訊列 -->
+      <div class="results-summary">
+        <div>轉帳筆數：<strong id="transferResultCount">0</strong> 筆</div>
+        <div>累計金額：<span class="results-total" style="color: var(--success);" id="transferResultTotal">NT$ 0</span></div>
+      </div>
+
+      <!-- 資料清單 -->
+      <div class="record-list" id="transferRecordList"></div>
+    </section>
+
+  </main>
+
+  <!-- Mobile Bottom Tab Navigation -->
+  <nav class="bottom-nav">
+    <button class="bottom-tab-btn active" data-tab="dashboard">
+      <span class="tab-icon">📊</span>
+      <span>總覽</span>
+    </button>
+    <button class="bottom-tab-btn" data-tab="medical">
+      <span class="tab-icon">🏥</span>
+      <span>就醫照顧</span>
+    </button>
+    <button class="bottom-tab-btn" data-tab="household">
+      <span class="tab-icon">🏠</span>
+      <span>家用繳款</span>
+    </button>
+    <button class="bottom-tab-btn" data-tab="transfers">
+      <span class="tab-icon">💰</span>
+      <span>老哥轉帳</span>
+    </button>
+  </nav>
+
+  <!-- 編輯紀錄 Modal -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-content">
+      <div class="modal-head">
+        <h3 class="modal-title" id="editModalTitle">✏️ 編輯紀錄</h3>
+        <button class="modal-close-btn" id="btnCloseEditModal">&times;</button>
+      </div>
+      <form id="formEdit">
+        <input type="hidden" id="editCategory">
+        <input type="hidden" id="editId">
+        
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label for="editDate">日期 *</label>
+          <input type="date" id="editDate" class="form-control" required>
+        </div>
+        
+        <div class="form-group" id="editItemGroup" style="margin-bottom: 12px;">
+          <label for="editItem">項目 *</label>
+          <select id="editItem" class="form-control">
+            <!-- 動態填充選項 -->
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label for="editAmount">金額 (NT$) *</label>
+          <input type="number" id="editAmount" class="form-control" min="0" step="1" required>
+        </div>
+
+        <div class="form-group" style="margin-bottom: 16px;">
+          <label for="editNote">備註</label>
+          <input type="text" id="editNote" class="form-control">
+        </div>
+
+        <div class="form-actions">
+          <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
+          <button type="submit" class="btn btn-primary">儲存變更</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 設定與資料備份 Modal -->
+  <div class="modal-overlay" id="backupModal">
+    <div class="modal-content">
+      <div class="modal-head">
+        <h3 class="modal-title">⚙️ 資料管理與備份</h3>
+        <button class="modal-close-btn" id="btnCloseBackupModal">&times;</button>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 14px;">
+        <p style="font-size: 0.88rem; color: var(--slate-600);">
+          本系統所有新增、修改的資料均自動儲存於您的瀏覽器本機中。您可以隨時匯出備份或下載 Excel/CSV 表格。
+        </p>
+
+        <div style="background: var(--slate-50); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <strong style="font-size: 0.9rem; display: block; margin-bottom: 6px;">📥 匯出資料檔案</strong>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary btn-sm" id="btnExportCSV">匯出 CSV (Excel 可開)</button>
+            <button class="btn btn-secondary btn-sm" id="btnDownloadBackup">下載 JSON 完整備份</button>
+          </div>
+        </div>
+
+        <div style="background: var(--slate-50); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <strong style="font-size: 0.9rem; display: block; margin-bottom: 6px;">📤 還原 JSON 備份檔</strong>
+          <input type="file" id="fileImportBackup" accept=".json" style="font-size: 0.85rem;">
+        </div>
+
+        <div style="background: #fef2f2; padding: 12px; border-radius: var(--radius-sm); border: 1px solid #fecaca; margin-top: 10px;">
+          <strong style="font-size: 0.9rem; color: #b91c1c; display: block; margin-bottom: 4px;">⚠️ 資料重設</strong>
+          <p style="font-size: 0.8rem; color: #7f1d1d; margin-bottom: 8px;">
+            重設將清除瀏覽器中的自訂增修，回復為最初從 Excel 檔案匯入的原始數據。
+          </p>
+          <button class="btn btn-danger btn-sm" id="btnResetData">回復至 Excel 原始資料</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast 提示組件 -->
+  <div class="toast" id="toast"></div>
+
+  <!-- 引入原始資料與應用程式核心邏輯 -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

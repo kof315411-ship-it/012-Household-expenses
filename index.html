@@ -28,9 +28,6 @@
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn btn-primary btn-sm" id="btnHeaderAdd" title="快速新增花費或轉帳">
-          ➕ 記帳
-        </button>
         <button class="btn btn-secondary btn-sm" id="btnSyncCloud" title="從 Google 雲端試算表拉取最新資料">
           <span class="sync-icon">🔄</span> 重新拉取
         </button>
@@ -356,62 +353,11 @@
     </button>
   </nav>
 
-  <!-- 手機專用右下角浮動 ➕ 記帳按鈕 -->
-  <button class="fab-add-btn" id="btnFabAdd" title="快速新增記帳">➕</button>
-
-  <!-- 統一新增記帳 Modal (手機與電腦皆適用) -->
-  <div class="modal-overlay" id="addModal">
-    <div class="modal-content">
-      <div class="modal-head">
-        <h3 class="modal-title" id="addModalTitle">➕ 新增紀錄</h3>
-        <button class="modal-close-btn" id="btnCloseAddModal">&times;</button>
-      </div>
-
-      <!-- 分類分段切換 -->
-      <div class="segment-control">
-        <button type="button" class="segment-btn active" data-cat="medical">🏥 就醫照顧</button>
-        <button type="button" class="segment-btn" data-cat="household">🏠 家用繳款</button>
-        <button type="button" class="segment-btn" data-cat="transfers">💰 老哥轉帳</button>
-      </div>
-
-      <form id="formGlobalAdd">
-        <input type="hidden" id="addCategory" value="medical">
-        
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label for="addDate">選擇時間 *</label>
-          <input type="date" id="addDate" class="form-control" required>
-        </div>
-
-        <div class="form-group" id="addGroupItem" style="margin-bottom: 12px;">
-          <label for="addItem">項目 (下拉選單) *</label>
-          <select id="addItem" class="form-control" required>
-            <!-- 動態填入選項 -->
-          </select>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label for="addAmount" id="labelAddAmount">金額 (NT$) *</label>
-          <input type="number" id="addAmount" class="form-control" placeholder="例: 35000" min="0" step="1" required>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 16px;">
-          <label for="addNote" id="labelAddNote">備註 (老媽款項請註記「老媽」)</label>
-          <input type="text" id="addNote" class="form-control" placeholder="備註說明 (選填)">
-        </div>
-
-        <div class="form-actions">
-          <button type="button" class="btn btn-secondary" id="btnCancelAdd">取消</button>
-          <button type="submit" class="btn btn-primary">💾 確認新增並同步</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- 統一修改紀錄 Modal (手機與電腦皆適用) -->
+  <!-- 統一修改/編輯紀錄 Modal (手機與電腦皆適用) -->
   <div class="modal-overlay" id="editModal">
     <div class="modal-content">
       <div class="modal-head">
-        <h3 class="modal-title" id="editModalTitle">✏️ 修改紀錄</h3>
+        <h3 class="modal-title" id="editModalTitle">✏️ 編輯紀錄</h3>
         <button class="modal-close-btn" id="btnCloseEditModal">&times;</button>
       </div>
       <form id="formGlobalEdit">
@@ -436,12 +382,12 @@
         </div>
 
         <div class="form-group" style="margin-bottom: 16px;">
-          <label for="editNote">備註</label>
-          <input type="text" id="editNote" class="form-control">
+          <label for="editNote">備註 (老媽款項請註記「老媽」)</label>
+          <input type="text" id="editNote" class="form-control" placeholder="備註說明 (選填)">
         </div>
 
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px;">
-          <button type="button" class="btn btn-danger btn-sm" id="btnDeleteCurrentRecord">🗑️ 刪除</button>
+          <button type="button" class="btn btn-danger btn-sm" id="btnDeleteCurrentRecord">🗑️ 刪除此筆</button>
           <div style="display: flex; gap: 8px;">
             <button type="button" class="btn btn-secondary btn-sm" id="btnCancelEdit">取消</button>
             <button type="submit" class="btn btn-primary btn-sm">💾 儲存修改</button>

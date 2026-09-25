@@ -32,6 +32,8 @@ function handleRequest(e) {
       output = updateRecord(ss, category, data, params.oldData);
     } else if (action === "delete") {
       output = deleteRecord(ss, category, data);
+    } else if (action === "batch_add") {
+      output = batchAddRecords(ss, params.items || []);
     } else {
       output = { success: false, message: "未知的操作指令：" + action };
     }
@@ -65,7 +67,7 @@ function addRecord(ss, category, data) {
     sheet.getRange(targetRow, 5).setValue(amount);
     sheet.getRange(targetRow, 6).setValue(note);
     if (momAmt !== "") sheet.getRange(targetRow, 7).setValue(momAmt);
-    return { success: true, message: "已寫入就醫照顧第 " + targetRow + " 列！", row: targetRow };
+    return { success: true, message: "已成功新增至雲端「就醫、照顧花費記帳」第 " + targetRow + " 列！", row: targetRow };
   } else if (category === "household") {
     var sheet = ss.getSheetByName("家用花費、繳款紀錄");
     if (!sheet) return { success: false, message: "找不到工作表「家用花費、繳款紀錄」" };
@@ -82,7 +84,7 @@ function addRecord(ss, category, data) {
     sheet.getRange(targetRow, 5).setValue(type);
     sheet.getRange(targetRow, 6).setValue(amount);
     sheet.getRange(targetRow, 7).setValue(note);
-    return { success: true, message: "已寫入家用繳款第 " + targetRow + " 列！", row: targetRow };
+    return { success: true, message: "已成功新增至雲端「家用花費、繳款紀錄」第 " + targetRow + " 列！", row: targetRow };
   } else if (category === "transfers") {
     var sheet = ss.getSheetByName("老哥轉帳記錄");
     if (!sheet) return { success: false, message: "找不到工作表「老哥轉帳記錄」" };
@@ -90,90 +92,133 @@ function addRecord(ss, category, data) {
     sheet.getRange(targetRow, 2).setValue(dateStr);
     sheet.getRange(targetRow, 7).setValue(amount);
     sheet.getRange(targetRow, 8).setValue(note);
-    return { success: true, message: "已寫入老哥轉帳第 " + targetRow + " 列！", row: targetRow };
+    return { success: true, message: "已成功新增至雲端「老哥轉帳記錄」第 " + targetRow + " 列！", row: targetRow };
   }
-  return { success: false, message: "不支援的類別" };
+  return { success: false, message: "不支援的類別：" + category };
+}
+
+function batchAddRecords(ss, items) {
+  if (!items || !items.length) return { success: false, message: "無待新增紀錄" };
+  var count = 0;
+  for (var i = 0; i < items.length; i++) {
+    var res = addRecord(ss, items[i].category, items[i].data);
+    if (res && res.success) count++;
+  }
+  return { success: true, message: "批次同步完成！成功寫入 " + count + " 筆至雲端試算表。" };
+}
+
+function findMatchingRow(sheet, category, data, oldData) {
+  var targetData = oldData || data;
+  var targetDate = normalizeDateYYMMDD(targetData.date);
+  var targetAmt = Math.round(Number(targetData.amount) || 0);
+  var targetItem = String(targetData.item || "").trim();
+  var maxRows = sheet.getLastRow();
+  var startRow = category === "transfers" ? 5 : 4;
+  if (maxRows < startRow) return -1;
+  var amtCol = category === "medical" ? 5 : (category === "household" ? 6 : 7);
+  var itemCol = (category === "medical" || category === "household") ? 3 : -1;
+  var dataValues = sheet.getRange(startRow, 1, maxRows - startRow + 1, 8).getValues();
+  var candidateRow = -1;
+  for (var i = dataValues.length - 1; i >= 0; i--) {
+    var row = dataValues[i];
+    var rowDate = normalizeDateYYMMDD(row[1]);
+    var rowAmt = Math.round(Number(row[amtCol - 1]) || 0);
+    var rowItem = itemCol > 0 ? String(row[itemCol - 1] || "").trim() : "";
+    if (rowDate !== targetDate) continue;
+    var amtMatch = (rowAmt === targetAmt);
+    if (!amtMatch && category === "medical") {
+      var rowMomAmt = Math.round(Number(row[6]) || 0);
+      if ((rowAmt + rowMomAmt === targetAmt) || (rowMomAmt === targetAmt)) amtMatch = true;
+    }
+    if (amtMatch) {
+      var itemMatch = (itemCol <= 0 || !targetItem || !rowItem || rowItem === targetItem || rowItem.indexOf(targetItem) !== -1 || targetItem.indexOf(rowItem) !== -1);
+      if (itemMatch) return startRow + i;
+      else if (candidateRow === -1) candidateRow = startRow + i;
+    }
+  }
+  return candidateRow;
 }
 
 function updateRecord(ss, category, data, oldData) {
   var sheetName = category === "medical" ? "就醫、照顧花費記帳" : (category === "household" ? "家用花費、繳款紀錄" : "老哥轉帳記錄");
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) return { success: false, message: "找不到工作表「" + sheetName + "」" };
-  var matchDate = formatDateToYYMMDD(oldData && oldData.date ? oldData.date : data.date);
-  var matchAmt = Number(oldData && oldData.amount !== undefined ? oldData.amount : data.amount);
-  var maxRows = sheet.getLastRow();
-  var startRow = category === "transfers" ? 5 : 4;
-  var amtCol = category === "medical" ? 5 : (category === "household" ? 6 : 7);
-  if (maxRows >= startRow) {
-    var dataValues = sheet.getRange(startRow, 1, maxRows - startRow + 1, 8).getValues();
-    for (var i = 0; i < dataValues.length; i++) {
-      var rowDate = dataValues[i][1];
-      var rowAmt = Number(dataValues[i][amtCol - 1]);
-      if (String(rowDate).trim() == String(matchDate).trim() && rowAmt === matchAmt) {
-        var targetRow = startRow + i;
-        var newDate = formatDateToYYMMDD(data.date);
-        var newAmt = Number(data.amount) || 0;
-        var newNote = data.note || "";
-        sheet.getRange(targetRow, 2).setValue(newDate);
-        if (category === "medical") {
-          var item = data.item || "其他";
-          var type = /看診|住院/.test(item) ? "醫療" : (/長照|看護/.test(item) ? "照護" : "其他");
-          sheet.getRange(targetRow, 3).setValue(item);
-          sheet.getRange(targetRow, 4).setValue(type);
-          sheet.getRange(targetRow, 5).setValue(newAmt);
-          sheet.getRange(targetRow, 6).setValue(newNote);
-          if (newNote.indexOf("老媽") !== -1) sheet.getRange(targetRow, 7).setValue(newAmt);
-        } else if (category === "household") {
-          var item = data.item || "其他";
-          sheet.getRange(targetRow, 3).setValue(item);
-          sheet.getRange(targetRow, 6).setValue(newAmt);
-          sheet.getRange(targetRow, 7).setValue(newNote);
-        } else if (category === "transfers") {
-          sheet.getRange(targetRow, 7).setValue(newAmt);
-          sheet.getRange(targetRow, 8).setValue(newNote);
-        }
-        return { success: true, message: "已成功更新雲端試算表第 " + targetRow + " 列！" };
-      }
-    }
+  var targetRow = findMatchingRow(sheet, category, data, oldData);
+  if (targetRow === -1) {
+    var addRes = addRecord(ss, category, data);
+    return { success: true, message: "雲端試算表未找到舊列，已自動補增為第 " + (addRes.row || "新") + " 列！", row: addRes.row };
   }
-  return { success: false, message: "未找到對應舊紀錄" };
+  var newDate = formatDateToYYMMDD(data.date);
+  var newAmt = Number(data.amount) || 0;
+  var newNote = data.note || "";
+  sheet.getRange(targetRow, 2).setValue(newDate);
+  if (category === "medical") {
+    var item = data.item || "其他";
+    var type = /看診|住院/.test(item) ? "醫療" : (/長照|看護/.test(item) ? "照護" : "其他");
+    sheet.getRange(targetRow, 3).setValue(item);
+    sheet.getRange(targetRow, 4).setValue(type);
+    sheet.getRange(targetRow, 5).setValue(newAmt);
+    sheet.getRange(targetRow, 6).setValue(newNote);
+    if (newNote.indexOf("老媽") !== -1) sheet.getRange(targetRow, 7).setValue(newAmt);
+    else sheet.getRange(targetRow, 7).setValue("");
+  } else if (category === "household") {
+    var item = data.item || "其他";
+    var account = "";
+    var type = "其他";
+    if (item === "房貸轉帳") { item = "轉帳"; account = "永豐"; type = "房貸"; }
+    else if (/台電|北水|瓦斯/.test(item)) { type = "水電"; account = "竑郵局"; }
+    else if (item === "中華電信") { type = "其他"; account = "竑郵局"; }
+    sheet.getRange(targetRow, 3).setValue(item);
+    if (account) sheet.getRange(targetRow, 4).setValue(account);
+    if (type) sheet.getRange(targetRow, 5).setValue(type);
+    sheet.getRange(targetRow, 6).setValue(newAmt);
+    sheet.getRange(targetRow, 7).setValue(newNote);
+  } else if (category === "transfers") {
+    sheet.getRange(targetRow, 7).setValue(newAmt);
+    sheet.getRange(targetRow, 8).setValue(newNote);
+  }
+  return { success: true, message: "已成功更新雲端試算表第 " + targetRow + " 列！", row: targetRow };
 }
 
 function deleteRecord(ss, category, data) {
   var sheetName = category === "medical" ? "就醫、照顧花費記帳" : (category === "household" ? "家用花費、繳款紀錄" : "老哥轉帳記錄");
   var sheet = ss.getSheetByName(sheetName);
   if (!sheet) return { success: false, message: "找不到工作表「" + sheetName + "」" };
-  var matchDate = formatDateToYYMMDD(data.date);
-  var matchAmt = Number(data.amount);
-  var maxRows = sheet.getLastRow();
-  var startRow = category === "transfers" ? 5 : 4;
-  var amtCol = category === "medical" ? 5 : (category === "household" ? 6 : 7);
-  if (maxRows >= startRow) {
-    var dataValues = sheet.getRange(startRow, 1, maxRows - startRow + 1, 8).getValues();
-    for (var i = 0; i < dataValues.length; i++) {
-      var rowDate = dataValues[i][1];
-      var rowAmt = Number(dataValues[i][amtCol - 1]);
-      if (String(rowDate).trim() == String(matchDate).trim() && rowAmt === matchAmt) {
-        sheet.deleteRow(startRow + i);
-        return { success: true, message: "已從雲端試算表刪除！" };
-      }
-    }
+  var targetRow = findMatchingRow(sheet, category, data, null);
+  if (targetRow === -1) {
+    return { success: true, message: "雲端試算表未找到該筆紀錄 (可能已被刪除)，本機已刪除！" };
   }
-  return { success: false, message: "未找到對應紀錄" };
+  sheet.deleteRow(targetRow);
+  return { success: true, message: "已從雲端試算表刪除第 " + targetRow + " 列！", row: targetRow };
+}
+
+function normalizeDateYYMMDD(val) {
+  if (val === null || val === undefined || val === "") return "";
+  if (val instanceof Date) {
+    var y = val.getFullYear(), m = val.getMonth() + 1, d = val.getDate();
+    var yy = String(y).slice(-2);
+    var mm = m < 10 ? "0" + m : "" + m;
+    var dd = d < 10 ? "0" + d : "" + d;
+    return yy + mm + dd;
+  }
+  var s = String(val).trim().split('.')[0].replace(/[-/]/g, "");
+  if (s.length === 8) return s.substring(2);
+  if (s.length === 6) return s;
+  var parsed = new Date(val);
+  if (!isNaN(parsed.getTime())) {
+    var y2 = parsed.getFullYear(), m2 = parsed.getMonth() + 1, d2 = parsed.getDate();
+    var yy2 = String(y2).slice(-2);
+    var mm2 = m2 < 10 ? "0" + m2 : "" + m2;
+    var dd2 = d2 < 10 ? "0" + d2 : "" + d2;
+    return yy2 + mm2 + dd2;
+  }
+  return s;
 }
 
 function formatDateToYYMMDD(val) {
-  if (!val) {
-    var now = new Date();
-    var yy = String(now.getFullYear()).substring(2);
-    var mm = String(now.getMonth() + 1).padStart(2, "0");
-    var dd = String(now.getDate()).padStart(2, "0");
-    return Number(yy + mm + dd);
-  }
-  var s = String(val).replace(/[-/]/g, "").trim();
-  if (s.length === 8) return Number(s.substring(2));
-  if (s.length === 6) return Number(s);
-  return val;
+  var norm = normalizeDateYYMMDD(val);
+  var n = Number(norm);
+  return isNaN(n) ? norm : n;
 }
 
 function findFirstEmptyRow(sheet, colIndex, startRow) {
@@ -413,33 +458,63 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
   // 同步更新至 Google 雲端試算表
   async function syncUpdateToCloud(category, record, oldRecord) {
     const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
-    if (!gasUrl || gasUrl.includes("docs.google.com/spreadsheets")) return;
+    if (!gasUrl) {
+      showToast("💾 已更新本機！(若需同步至 Google 試算表，請至「⚙️ 雲端設定」填入同步網址)");
+      return;
+    }
+    if (gasUrl.includes("docs.google.com/spreadsheets")) {
+      updateSyncBadge();
+      showToast("⚠️ 本機已更新，但設定中的網址是試算表連結，非 Apps Script");
+      return;
+    }
+
+    updateSyncBadge("syncing");
+    showToast("☁️ 正在同步更新至 Google 雲端試算表...");
 
     try {
-      await sendToGAS(gasUrl, {
+      const res = await sendToGAS(gasUrl, {
         action: "update",
         category: category,
         data: record,
         oldData: oldRecord
       });
+      updateSyncBadge("ready");
+      showToast("✅ " + (res.message || "已成功更新 Google 雲端試算表！"));
     } catch (err) {
       console.warn("雲端更新同步失敗:", err);
+      updateSyncBadge("failed");
+      showToast("⚠️ 本機已更新，但雲端更新失敗：" + err.message);
     }
   }
 
   // 同步刪除至 Google 雲端試算表
   async function syncDeleteToCloud(category, record) {
     const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
-    if (!gasUrl || gasUrl.includes("docs.google.com/spreadsheets")) return;
+    if (!gasUrl) {
+      showToast("🗑️ 已從本機刪除！(若需同步至 Google 試算表，請至「⚙️ 雲端設定」填入同步網址)");
+      return;
+    }
+    if (gasUrl.includes("docs.google.com/spreadsheets")) {
+      updateSyncBadge();
+      showToast("⚠️ 本機已刪除，但設定中的網址是試算表連結，非 Apps Script");
+      return;
+    }
+
+    updateSyncBadge("syncing");
+    showToast("☁️ 正在從 Google 雲端試算表同步刪除...");
 
     try {
-      await sendToGAS(gasUrl, {
+      const res = await sendToGAS(gasUrl, {
         action: "delete",
         category: category,
         data: record
       });
+      updateSyncBadge("ready");
+      showToast("✅ " + (res.message || "已成功從 Google 雲端試算表刪除！"));
     } catch (err) {
       console.warn("雲端刪除同步失敗:", err);
+      updateSyncBadge("failed");
+      showToast("⚠️ 本機已刪除，但雲端刪除失敗：" + err.message);
     }
   }
 
@@ -476,54 +551,57 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
     });
   }
 
-  // 表單摺疊與按鈕切換
+  // 表單摺疊與按鈕切換 (直覺的手機原生意涵展開收合)
   function setupFormToggles() {
     const btnMed = document.getElementById("btnToggleMedForm");
-    if (btnMed) {
+    const cardMed = document.getElementById("formMedCard");
+    if (btnMed && cardMed) {
       btnMed.addEventListener("click", () => {
-        if (typeof window.openAddModal === "function") {
-          window.openAddModal("medical");
-        } else {
-          const cardMed = document.getElementById("formMedCard");
-          if (cardMed) cardMed.classList.toggle("open");
+        cardMed.classList.toggle("open");
+        if (cardMed.classList.contains("open")) {
+          const d = document.getElementById("medDate");
+          if (d && !d.value) d.value = getTodayString();
+          const amt = document.getElementById("medAmount");
+          if (amt) amt.focus();
         }
       });
     }
 
     const btnHouse = document.getElementById("btnToggleHouseForm");
-    if (btnHouse) {
+    const cardHouse = document.getElementById("formHouseCard");
+    if (btnHouse && cardHouse) {
       btnHouse.addEventListener("click", () => {
-        if (typeof window.openAddModal === "function") {
-          window.openAddModal("household");
-        } else {
-          const cardHouse = document.getElementById("formHouseCard");
-          if (cardHouse) cardHouse.classList.toggle("open");
+        cardHouse.classList.toggle("open");
+        if (cardHouse.classList.contains("open")) {
+          const d = document.getElementById("houseDate");
+          if (d && !d.value) d.value = getTodayString();
+          const amt = document.getElementById("houseAmount");
+          if (amt) amt.focus();
         }
       });
     }
 
     const btnTransfer = document.getElementById("btnToggleTransferForm");
-    if (btnTransfer) {
+    const cardTransfer = document.getElementById("formTransferCard");
+    if (btnTransfer && cardTransfer) {
       btnTransfer.addEventListener("click", () => {
-        if (typeof window.openAddModal === "function") {
-          window.openAddModal("transfers");
-        } else {
-          const cardTransfer = document.getElementById("formTransferCard");
-          if (cardTransfer) cardTransfer.classList.toggle("open");
+        cardTransfer.classList.toggle("open");
+        if (cardTransfer.classList.contains("open")) {
+          const d = document.getElementById("transferDate");
+          if (d && !d.value) d.value = getTodayString();
+          const amt = document.getElementById("transferAmount");
+          if (amt) amt.focus();
         }
       });
     }
 
     const btnCancelMed = document.getElementById("btnCancelMed");
-    const cardMed = document.getElementById("formMedCard");
     if (btnCancelMed && cardMed) btnCancelMed.addEventListener("click", () => cardMed.classList.remove("open"));
 
     const btnCancelHouse = document.getElementById("btnCancelHouse");
-    const cardHouse = document.getElementById("formHouseCard");
     if (btnCancelHouse && cardHouse) btnCancelHouse.addEventListener("click", () => cardHouse.classList.remove("open"));
 
     const btnCancelTransfer = document.getElementById("btnCancelTransfer");
-    const cardTransfer = document.getElementById("formTransferCard");
     if (btnCancelTransfer && cardTransfer) btnCancelTransfer.addEventListener("click", () => cardTransfer.classList.remove("open"));
 
     const today = getTodayString();
@@ -693,8 +771,11 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         </div>
         ${r.note ? `<div class="record-note">${r.note}</div>` : ""}
         <div class="record-footer">
-          <button type="button" class="btn-card-edit" data-category="${cat}" data-id="${r.id}">
-            ✏️ 修改 / 刪除
+          <button type="button" class="btn btn-secondary btn-sm btn-edit" data-category="${cat}" data-id="${r.id}">
+            ✏️ 編輯
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-delete" data-category="${cat}" data-id="${r.id}">
+            🗑️ 刪除
           </button>
         </div>
       `;
@@ -761,8 +842,11 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         </div>
         ${r.note ? `<div class="record-note">${displayNote}</div>` : ""}
         <div class="record-footer">
-          <button type="button" class="btn-card-edit" data-category="medical" data-id="${r.id}">
-            ✏️ 修改 / 刪除
+          <button type="button" class="btn btn-secondary btn-sm btn-edit" data-category="medical" data-id="${r.id}">
+            ✏️ 編輯
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-delete" data-category="medical" data-id="${r.id}">
+            🗑️ 刪除
           </button>
         </div>
       `;
@@ -822,8 +906,11 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         </div>
         ${r.note ? `<div class="record-note">${r.note}</div>` : ""}
         <div class="record-footer">
-          <button type="button" class="btn-card-edit" data-category="household" data-id="${r.id}">
-            ✏️ 修改 / 刪除
+          <button type="button" class="btn btn-secondary btn-sm btn-edit" data-category="household" data-id="${r.id}">
+            ✏️ 編輯
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-delete" data-category="household" data-id="${r.id}">
+            🗑️ 刪除
           </button>
         </div>
       `;
@@ -881,8 +968,11 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         </div>
         ${r.note ? `<div class="record-note">備註：${r.note}</div>` : ""}
         <div class="record-footer">
-          <button type="button" class="btn-card-edit" data-category="transfers" data-id="${r.id}">
-            ✏️ 修改 / 刪除
+          <button type="button" class="btn btn-secondary btn-sm btn-edit" data-category="transfers" data-id="${r.id}">
+            ✏️ 編輯
+          </button>
+          <button type="button" class="btn btn-danger btn-sm btn-delete" data-category="transfers" data-id="${r.id}">
+            🗑️ 刪除
           </button>
         </div>
       `;
@@ -944,165 +1034,24 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
     renderTransferList();
   }
 
-  // 統一新增紀錄 Modal
-  function setupAddModal() {
-    const modal = document.getElementById("addModal");
-    const btnClose = document.getElementById("btnCloseAddModal");
-    const btnCancel = document.getElementById("btnCancelAdd");
-    const formAdd = document.getElementById("formGlobalAdd");
-    const fabBtn = document.getElementById("btnFabAdd");
-    const headerBtn = document.getElementById("btnHeaderAdd");
-    const segmentBtns = document.querySelectorAll("#addModal .segment-btn");
+  // 刪除紀錄 (本機清除 + 同步 Google 雲端試算表刪除)
+  function deleteRecord(category, id) {
+    const catKey = category === "medical" ? "medicalCare" : (category === "household" ? "household" : "transfers");
+    const list = appData[catKey] || [];
+    const record = list.find(r => String(r.id) === String(id));
 
-    function setCategory(cat) {
-      const catInput = document.getElementById("addCategory");
-      if (catInput) catInput.value = cat;
+    if (!record) return;
 
-      segmentBtns.forEach(b => {
-        b.classList.toggle("active", b.dataset.cat === cat);
-      });
+    const catName = category === "medical" ? "就醫照顧" : (category === "household" ? "家用繳款" : "老哥轉帳");
+    const itemInfo = record.item ? `項目：${record.item}\n` : "";
+    const confirmMsg = `確定要刪除這筆【${catName}】紀錄嗎？\n\n日期：${record.date}\n${itemInfo}金額：NT$ ${record.amount}\n備註：${record.note || '無'}\n\n(若有設定雲端同步，將同步從 Google 試算表刪除)`;
 
-      const addItem = document.getElementById("addItem");
-      const groupItem = document.getElementById("addGroupItem");
-      const labelAmt = document.getElementById("labelAddAmount");
-      const labelNote = document.getElementById("labelAddNote");
-      const noteInput = document.getElementById("addNote");
-
-      if (cat === "medical") {
-        if (groupItem) groupItem.style.display = "block";
-        if (addItem) {
-          addItem.innerHTML = `
-            <option value="看診">看診</option>
-            <option value="長照費">長照費</option>
-            <option value="住院費">住院費</option>
-            <option value="看護費">看護費</option>
-            <option value="其他">其他</option>
-          `;
-        }
-        if (labelAmt) labelAmt.textContent = "金額 (NT$) *";
-        if (labelNote) labelNote.textContent = "備註 (老媽款項請註記「老媽」)";
-        if (noteInput) noteInput.placeholder = "例: 門診收據、長照月費、老媽等";
-      } else if (cat === "household") {
-        if (groupItem) groupItem.style.display = "block";
-        if (addItem) {
-          addItem.innerHTML = `
-            <option value="台電">台電</option>
-            <option value="中華電信">中華電信</option>
-            <option value="瓦斯">瓦斯</option>
-            <option value="北水">北水</option>
-            <option value="房貸轉帳">房貸轉帳</option>
-            <option value="墓園管理費">墓園管理費</option>
-            <option value="其他">其他</option>
-          `;
-        }
-        if (labelAmt) labelAmt.textContent = "金額 (NT$) *";
-        if (labelNote) labelNote.textContent = "備註說明";
-        if (noteInput) noteInput.placeholder = "備註說明 (選填)";
-      } else if (cat === "transfers") {
-        if (groupItem) groupItem.style.display = "none";
-        if (labelAmt) labelAmt.textContent = "換匯後入帳金額 (NT$) *";
-        if (labelNote) labelNote.textContent = "備註說明";
-        if (noteInput) noteInput.placeholder = "例: 4月生活費、換匯等 (選填)";
-      }
-    }
-
-    window.openAddModal = function (defaultCat) {
-      let cat = defaultCat;
-      if (!cat) {
-        const activeTab = document.querySelector(".tab-panel.active");
-        if (activeTab && activeTab.id === "tab-household") cat = "household";
-        else if (activeTab && activeTab.id === "tab-transfers") cat = "transfers";
-        else cat = "medical";
-      }
-      setCategory(cat);
-      const dateEl = document.getElementById("addDate");
-      const amtEl = document.getElementById("addAmount");
-      const noteEl = document.getElementById("addNote");
-      if (dateEl) dateEl.value = getTodayString();
-      if (amtEl) amtEl.value = "";
-      if (noteEl) noteEl.value = "";
-      if (modal) modal.classList.add("open");
-      setTimeout(() => {
-        if (amtEl) amtEl.focus();
-      }, 150);
-    };
-
-    window.closeAddModal = function () {
-      if (modal) modal.classList.remove("open");
-    };
-
-    if (fabBtn) fabBtn.addEventListener("click", () => openAddModal());
-    if (headerBtn) headerBtn.addEventListener("click", () => openAddModal());
-
-    segmentBtns.forEach(btn => {
-      btn.addEventListener("click", () => {
-        setCategory(btn.dataset.cat);
-      });
-    });
-
-    if (btnClose) btnClose.addEventListener("click", closeAddModal);
-    if (btnCancel) btnCancel.addEventListener("click", closeAddModal);
-    if (modal) {
-      modal.addEventListener("click", (e) => {
-        if (e.target === modal) closeAddModal();
-      });
-    }
-
-    if (formAdd) {
-      formAdd.addEventListener("submit", (e) => {
-        e.preventDefault();
-        const cat = document.getElementById("addCategory").value;
-        const date = document.getElementById("addDate").value;
-        const amount = Number(document.getElementById("addAmount").value);
-        const note = document.getElementById("addNote").value.trim();
-
-        if (!date || isNaN(amount) || amount <= 0) {
-          showToast("⚠️ 請輸入正確的日期與大於 0 的金額");
-          return;
-        }
-
-        const timestamp = Date.now();
-        let newRecord = null;
-        let catKey = "";
-
-        if (cat === "medical") {
-          catKey = "medicalCare";
-          const item = document.getElementById("addItem").value || "其他";
-          newRecord = {
-            id: `med_${timestamp}`,
-            date,
-            item,
-            amount,
-            note
-          };
-        } else if (cat === "household") {
-          catKey = "household";
-          const item = document.getElementById("addItem").value || "其他";
-          newRecord = {
-            id: `house_${timestamp}`,
-            date,
-            item,
-            amount,
-            note
-          };
-        } else {
-          catKey = "transfers";
-          newRecord = {
-            id: `transfer_${timestamp}`,
-            date,
-            amount,
-            note
-          };
-        }
-
-        appData[catKey].unshift(newRecord);
-        saveData();
-        closeAddModal();
-        refreshAllViews();
-
-        showToast("🎉 已成功新增紀錄！");
-        syncRecordToCloud(cat, newRecord);
-      });
+    if (confirm(confirmMsg)) {
+      appData[catKey] = list.filter(r => String(r.id) !== String(id));
+      saveData();
+      if (typeof window.closeEditModal === "function") window.closeEditModal();
+      refreshAllViews();
+      syncDeleteToCloud(category, record);
     }
   }
 
@@ -1233,41 +1182,33 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
       btnDelete.addEventListener("click", () => {
         const category = document.getElementById("editCategory").value;
         const id = document.getElementById("editId").value;
-        const catKey = category === "medical" ? "medicalCare" : (category === "household" ? "household" : "transfers");
-        const list = appData[catKey] || [];
-        const record = list.find(r => String(r.id) === String(id));
-
-        if (!record) return;
-
-        const catName = category === "medical" ? "就醫照顧" : (category === "household" ? "家用繳款" : "老哥轉帳");
-        const itemInfo = record.item ? `項目：${record.item}\n` : "";
-        const confirmMsg = `確定要刪除這筆【${catName}】紀錄嗎？\n\n日期：${record.date}\n${itemInfo}金額：NT$ ${record.amount}\n備註：${record.note || '無'}`;
-        
-        if (confirm(confirmMsg)) {
-          appData[catKey] = list.filter(r => String(r.id) !== String(id));
-          saveData();
-          closeEditModal();
-          refreshAllViews();
-          showToast("🗑️ 已成功刪除該筆紀錄！");
-          syncDeleteToCloud(category, record);
-        }
+        deleteRecord(category, id);
       });
     }
   }
 
-  // 點擊卡片或修改按鈕的事件委派 (支援觸控與滑鼠點擊)
+  // 點擊卡片或編輯/刪除按鈕的事件委派 (支援觸控與滑鼠點擊)
   function setupCardDelegation() {
     const listIds = ["medRecordList", "houseRecordList", "transferRecordList", "recentActivityList"];
     listIds.forEach(id => {
       const el = document.getElementById(id);
       if (!el) return;
       el.addEventListener("click", (e) => {
-        const editBtn = e.target.closest(".btn-card-edit");
+        const editBtn = e.target.closest(".btn-edit") || e.target.closest(".btn-card-edit");
         if (editBtn) {
           e.stopPropagation();
           const cat = editBtn.dataset.category;
           const recId = editBtn.dataset.id;
           if (cat && recId) openEditModal(cat, recId);
+          return;
+        }
+
+        const deleteBtn = e.target.closest(".btn-delete");
+        if (deleteBtn) {
+          e.stopPropagation();
+          const cat = deleteBtn.dataset.category;
+          const recId = deleteBtn.dataset.id;
+          if (cat && recId) deleteRecord(cat, recId);
           return;
         }
 
@@ -1806,7 +1747,6 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
   function init() {
     loadData();
     setupNavigation();
-    setupAddModal();
     setupEditModal();
     setupCardDelegation();
     setupFormToggles();

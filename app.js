@@ -571,15 +571,9 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
           <div class="record-amount">${formatMoney(r.amount)}</div>
         </div>
         ${r.note ? `<div class="record-note">${displayNote}</div>` : ""}
-        <div class="record-footer">
-          <button class="btn btn-secondary btn-sm btn-edit" data-category="medical" data-id="${r.id}">✏️ 編輯</button>
-          <button class="btn btn-danger btn-sm btn-delete" data-category="medical" data-id="${r.id}">🗑️ 刪除</button>
-        </div>
       `;
       container.appendChild(card);
     });
-
-    attachItemActions(container);
   }
 
   // 3. 渲染家用繳款紀錄清單
@@ -631,15 +625,9 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
           <div class="record-amount">${formatMoney(r.amount)}</div>
         </div>
         ${r.note ? `<div class="record-note">${r.note}</div>` : ""}
-        <div class="record-footer">
-          <button class="btn btn-secondary btn-sm btn-edit" data-category="household" data-id="${r.id}">✏️ 編輯</button>
-          <button class="btn btn-danger btn-sm btn-delete" data-category="household" data-id="${r.id}">🗑️ 刪除</button>
-        </div>
       `;
       container.appendChild(card);
     });
-
-    attachItemActions(container);
   }
 
   // 4. 渲染老哥轉帳紀錄清單
@@ -689,96 +677,9 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
           <div class="record-amount inflow">+${formatMoney(r.amount)}</div>
         </div>
         ${r.note ? `<div class="record-note">備註：${r.note}</div>` : ""}
-        <div class="record-footer">
-          <button class="btn btn-secondary btn-sm btn-edit" data-category="transfers" data-id="${r.id}">✏️ 編輯</button>
-          <button class="btn btn-danger btn-sm btn-delete" data-category="transfers" data-id="${r.id}">🗑️ 刪除</button>
-        </div>
       `;
       container.appendChild(card);
     });
-
-    attachItemActions(container);
-  }
-
-  // 綁定卡片上的「編輯」與「刪除」按鈕
-  function attachItemActions(container) {
-    container.querySelectorAll(".btn-edit").forEach(btn => {
-      btn.addEventListener("click", () => {
-        openEditModal(btn.dataset.category, btn.dataset.id);
-      });
-    });
-
-    container.querySelectorAll(".btn-delete").forEach(btn => {
-      btn.addEventListener("click", () => {
-        deleteRecord(btn.dataset.category, btn.dataset.id);
-      });
-    });
-  }
-
-  // 刪除單筆紀錄
-  function deleteRecord(category, id) {
-    if (!confirm("確定要刪除這筆紀錄嗎？")) return;
-    const list = appData[category];
-    const index = list.findIndex(x => x.id === id);
-    if (index !== -1) {
-      list.splice(index, 1);
-      saveData();
-      showToast("已從本機刪除紀錄");
-      if (category === "medical") renderMedicalList();
-      else if (category === "household") renderHouseholdList();
-      else if (category === "transfers") renderTransferList();
-      renderDashboard();
-    }
-  }
-
-  // 開啟編輯 Modal
-  function openEditModal(category, id) {
-    const list = appData[category];
-    const record = list.find(x => x.id === id);
-    if (!record) return;
-
-    document.getElementById("editCategory").value = category;
-    document.getElementById("editId").value = id;
-    document.getElementById("editDate").value = record.date || getTodayString();
-    document.getElementById("editAmount").value = record.amount || 0;
-    document.getElementById("editNote").value = record.note || "";
-
-    const editItemGroup = document.getElementById("editItemGroup");
-    const editItem = document.getElementById("editItem");
-    editItem.innerHTML = "";
-
-    if (category === "medical") {
-      editItemGroup.style.display = "block";
-      const medOptions = ["看診", "長照費", "住院費", "看護費", "其他"];
-      medOptions.forEach(opt => {
-        const o = document.createElement("option");
-        o.value = opt;
-        o.textContent = opt;
-        if (record.item === opt) o.selected = true;
-        editItem.appendChild(o);
-      });
-      document.getElementById("editModalTitle").textContent = "✏️ 編輯就醫照顧紀錄";
-    } else if (category === "household") {
-      editItemGroup.style.display = "block";
-      const houseOptions = ["台電", "中華電信", "瓦斯", "北水", "房貸轉帳", "墓園管理費", "其他"];
-      houseOptions.forEach(opt => {
-        const o = document.createElement("option");
-        o.value = opt;
-        o.textContent = opt;
-        if (record.item === opt) o.selected = true;
-        editItem.appendChild(o);
-      });
-      document.getElementById("editModalTitle").textContent = "✏️ 編輯家用繳款紀錄";
-    } else if (category === "transfers") {
-      editItemGroup.style.display = "none";
-      document.getElementById("editModalTitle").textContent = "✏️ 編輯老哥轉帳紀錄";
-    }
-
-    document.getElementById("editModal").classList.add("open");
-  }
-
-  function closeEditModal() {
-    document.getElementById("editModal").classList.remove("open");
   }
 
   // 綁定篩選器監聽
@@ -908,37 +809,6 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
 
       syncRecordToCloud("transfers", newRecord);
     });
-
-    // 4. 編輯表單送出
-    document.getElementById("formEdit").addEventListener("submit", (e) => {
-      e.preventDefault();
-      const category = document.getElementById("editCategory").value;
-      const id = document.getElementById("editId").value;
-      const date = document.getElementById("editDate").value;
-      const amount = Number(document.getElementById("editAmount").value);
-      const note = document.getElementById("editNote").value.trim();
-
-      const list = appData[category];
-      const record = list.find(x => x.id === id);
-      if (record) {
-        record.date = date;
-        record.amount = amount;
-        record.note = note;
-        if (category !== "transfers") {
-          record.item = document.getElementById("editItem").value;
-        }
-        saveData();
-        showToast("已更新紀錄！");
-        closeEditModal();
-        if (category === "medical") renderMedicalList();
-        else if (category === "household") renderHouseholdList();
-        else if (category === "transfers") renderTransferList();
-        renderDashboard();
-      }
-    });
-
-    document.getElementById("btnCancelEdit").addEventListener("click", closeEditModal);
-    document.getElementById("btnCloseEditModal").addEventListener("click", closeEditModal);
   }
 
   // Google 雲端試算表拉取器

@@ -353,46 +353,6 @@
     </button>
   </nav>
 
-  <!-- 編輯紀錄 Modal -->
-  <div class="modal-overlay" id="editModal">
-    <div class="modal-content">
-      <div class="modal-head">
-        <h3 class="modal-title" id="editModalTitle">✏️ 編輯紀錄</h3>
-        <button class="modal-close-btn" id="btnCloseEditModal">&times;</button>
-      </div>
-      <form id="formEdit">
-        <input type="hidden" id="editCategory">
-        <input type="hidden" id="editId">
-        
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label for="editDate">日期 *</label>
-          <input type="date" id="editDate" class="form-control" required>
-        </div>
-        
-        <div class="form-group" id="editItemGroup" style="margin-bottom: 12px;">
-          <label for="editItem">項目 *</label>
-          <select id="editItem" class="form-control">
-            <!-- 動態填充選項 -->
-          </select>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label for="editAmount">金額 (NT$) *</label>
-          <input type="number" id="editAmount" class="form-control" min="0" step="1" required>
-        </div>
-
-        <div class="form-group" style="margin-bottom: 16px;">
-          <label for="editNote">備註</label>
-          <input type="text" id="editNote" class="form-control">
-        </div>
-
-        <div class="form-actions">
-          <button type="button" class="btn btn-secondary" id="btnCancelEdit">取消</button>
-          <button type="submit" class="btn btn-primary">儲存變更</button>
-        </div>
-      </form>
-    </div>
-  </div>
 
   <!-- 設定與資料備份 Modal -->
   <div class="modal-overlay" id="backupModal">

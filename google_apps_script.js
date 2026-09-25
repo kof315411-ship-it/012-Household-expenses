@@ -47,10 +47,6 @@ function handleRequest(e) {
       output = { success: true, message: "Google Apps Script 雲端同步服務正常運作中！", time: new Date() };
     } else if (action === "add") {
       output = addRecord(ss, category, data);
-    } else if (action === "delete") {
-      output = deleteRecord(ss, category, data);
-    } else if (action === "syncAll") {
-      output = syncAllRecords(ss, data);
     } else {
       output = { success: false, message: "未知的操作指令：" + action };
     }

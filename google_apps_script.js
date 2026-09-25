@@ -47,6 +47,10 @@ function handleRequest(e) {
       output = { success: true, message: "Google Apps Script 雲端同步服務正常運作中！", time: new Date() };
     } else if (action === "add") {
       output = addRecord(ss, category, data);
+    } else if (action === "update" || action === "edit") {
+      output = updateRecord(ss, category, data, params.oldData);
+    } else if (action === "delete") {
+      output = deleteRecord(ss, category, data);
     } else {
       output = { success: false, message: "未知的操作指令：" + action };
     }
@@ -154,6 +158,88 @@ function addRecord(ss, category, data) {
   }
 
   return { success: false, message: "不支援的類別：" + category };
+}
+
+/**
+ * 修改試算表既有紀錄
+ */
+function updateRecord(ss, category, data, oldData) {
+  var sheetName = category === "medical" ? "就醫、照顧花費記帳" : (category === "household" ? "家用花費、繳款紀錄" : "老哥轉帳記錄");
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return { success: false, message: "找不到工作表「" + sheetName + "」" };
+
+  var matchDate = formatDateToYYMMDD(oldData && oldData.date ? oldData.date : data.date);
+  var matchAmt = Number(oldData && oldData.amount !== undefined ? oldData.amount : data.amount);
+
+  var maxRows = sheet.getLastRow();
+  var startRow = category === "transfers" ? 5 : 4;
+  var amtCol = category === "medical" ? 5 : (category === "household" ? 6 : 7);
+
+  if (maxRows >= startRow) {
+    var dataValues = sheet.getRange(startRow, 1, maxRows - startRow + 1, 8).getValues();
+    for (var i = 0; i < dataValues.length; i++) {
+      var rowDate = dataValues[i][1];
+      var rowAmt = Number(dataValues[i][amtCol - 1]);
+      if (String(rowDate).trim() == String(matchDate).trim() && rowAmt === matchAmt) {
+        var targetRow = startRow + i;
+        var newDate = formatDateToYYMMDD(data.date);
+        var newAmt = Number(data.amount) || 0;
+        var newNote = data.note || "";
+
+        sheet.getRange(targetRow, 2).setValue(newDate);
+        if (category === "medical") {
+          var item = data.item || "其他";
+          var type = /看診|住院/.test(item) ? "醫療" : (/長照|看護/.test(item) ? "照護" : "其他");
+          sheet.getRange(targetRow, 3).setValue(item);
+          sheet.getRange(targetRow, 4).setValue(type);
+          sheet.getRange(targetRow, 5).setValue(newAmt);
+          sheet.getRange(targetRow, 6).setValue(newNote);
+          if (newNote.indexOf("老媽") !== -1) {
+            sheet.getRange(targetRow, 7).setValue(newAmt);
+          }
+        } else if (category === "household") {
+          var item = data.item || "其他";
+          sheet.getRange(targetRow, 3).setValue(item);
+          sheet.getRange(targetRow, 6).setValue(newAmt);
+          sheet.getRange(targetRow, 7).setValue(newNote);
+        } else if (category === "transfers") {
+          sheet.getRange(targetRow, 7).setValue(newAmt);
+          sheet.getRange(targetRow, 8).setValue(newNote);
+        }
+        return { success: true, message: "已成功更新雲端試算表第 " + targetRow + " 列！", row: targetRow };
+      }
+    }
+  }
+  return { success: false, message: "雲端試算表未找到對應舊紀錄，僅更新本機。" };
+}
+
+/**
+ * 刪除試算表紀錄
+ */
+function deleteRecord(ss, category, data) {
+  var sheetName = category === "medical" ? "就醫、照顧花費記帳" : (category === "household" ? "家用花費、繳款紀錄" : "老哥轉帳記錄");
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return { success: false, message: "找不到工作表「" + sheetName + "」" };
+
+  var matchDate = formatDateToYYMMDD(data.date);
+  var matchAmt = Number(data.amount);
+  var maxRows = sheet.getLastRow();
+  var startRow = category === "transfers" ? 5 : 4;
+  var amtCol = category === "medical" ? 5 : (category === "household" ? 6 : 7);
+
+  if (maxRows >= startRow) {
+    var dataValues = sheet.getRange(startRow, 1, maxRows - startRow + 1, 8).getValues();
+    for (var i = 0; i < dataValues.length; i++) {
+      var rowDate = dataValues[i][1];
+      var rowAmt = Number(dataValues[i][amtCol - 1]);
+      if (String(rowDate).trim() == String(matchDate).trim() && rowAmt === matchAmt) {
+        var targetRow = startRow + i;
+        sheet.deleteRow(targetRow);
+        return { success: true, message: "已從雲端試算表刪除第 " + targetRow + " 列！" };
+      }
+    }
+  }
+  return { success: false, message: "雲端試算表未找到對應紀錄，僅刪除本機。" };
 }
 
 /**

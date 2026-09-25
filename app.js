@@ -286,25 +286,54 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
     }
   }
 
-  function updateSyncBadge() {
+  function updateSyncBadge(status) {
     const badge = document.getElementById("syncBadge");
-    const gasUrl = localStorage.getItem(GAS_URL_KEY);
-    if (badge) {
-      if (gasUrl && gasUrl.trim().startsWith("http")) {
-        badge.textContent = `⚡ 雲端寫入同步中`;
-        badge.style.background = "#dcfce7";
-        badge.style.color = "#15803d";
-      } else {
-        badge.textContent = `僅本機儲存 (未設同步網址)`;
-        badge.style.background = "#f1f5f9";
-        badge.style.color = "#64748b";
-      }
+    if (!badge) return;
+    const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
+
+    if (!gasUrl) {
+      badge.textContent = "未設定同步網址 (僅手機儲存)";
+      badge.style.background = "#f1f5f9";
+      badge.style.color = "#64748b";
+      return;
+    }
+
+    if (gasUrl.includes("docs.google.com/spreadsheets")) {
+      badge.textContent = "❌ 網址錯誤 (非 Apps Script)";
+      badge.style.background = "#fee2e2";
+      badge.style.color = "#b91c1c";
+      return;
+    }
+
+    if (status === "syncing") {
+      badge.textContent = "⏳ 正在傳送寫入中...";
+      badge.style.background = "#fef3c7";
+      badge.style.color = "#b45309";
+    } else if (status === "failed") {
+      badge.textContent = "⚠️ 連線異常 (請重新測試)";
+      badge.style.background = "#fee2e2";
+      badge.style.color = "#b91c1c";
+    } else {
+      badge.textContent = "🟢 雲端同步就緒 (已連線)";
+      badge.style.background = "#dcfce7";
+      badge.style.color = "#15803d";
     }
   }
 
-  // 雲端寫入通訊器 (支援 JSONP 與 fetch fallback)
+  // 雲端寫入通訊器 (真實 JSONP 通訊，嚴格回傳真實狀態)
   function sendToGAS(gasUrl, payload) {
     return new Promise((resolve, reject) => {
+      const url = (gasUrl || "").trim();
+      if (!url) {
+        return reject(new Error("未設定同步網址"));
+      }
+      if (url.includes("docs.google.com/spreadsheets")) {
+        return reject(new Error("此為 Google 試算表檢視連結，不是 Apps Script 網頁應用程式網址！無法直接寫入。"));
+      }
+      if (!url.includes("script.google.com")) {
+        return reject(new Error("無效的 Apps Script 網址，需為 https://script.google.com/macros/s/.../exec"));
+      }
+
       const cbName = "gasSyncCb_" + Math.random().toString(36).substring(2, 9);
       const script = document.createElement("script");
       let finished = false;
@@ -313,10 +342,9 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         if (!finished) {
           finished = true;
           cleanup();
-          // 若 JSONP 逾時，嘗試以 no-cors POST 發送
-          fallbackPost(gasUrl, payload).then(resolve).catch(reject);
+          reject(new Error("連線逾時 (請確認 Apps Script 部署設定中「誰可以存取」是否選為「任何人」)"));
         }
-      }, 7000);
+      }, 10000);
 
       function cleanup() {
         clearTimeout(timer);
@@ -328,31 +356,24 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         if (!finished) {
           finished = true;
           cleanup();
-          resolve(res);
+          if (res && res.success !== false) {
+            resolve(res);
+          } else {
+            reject(new Error(res && res.message ? res.message : "雲端執行失敗"));
+          }
         }
       };
 
       const query = `payload=${encodeURIComponent(JSON.stringify(payload))}&callback=${cbName}&_t=${Date.now()}`;
-      script.src = gasUrl + (gasUrl.includes("?") ? "&" : "?") + query;
+      script.src = url + (url.includes("?") ? "&" : "?") + query;
       script.onerror = function () {
         if (!finished) {
           finished = true;
           cleanup();
-          fallbackPost(gasUrl, payload).then(resolve).catch(reject);
+          reject(new Error("無法連線至 Apps Script。請確認網址正確，且部署時「誰可以存取」選為「任何人 (Anyone)」。"));
         }
       };
       document.head.appendChild(script);
-    });
-  }
-
-  function fallbackPost(gasUrl, payload) {
-    return fetch(gasUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain" },
-      body: JSON.stringify(payload)
-    }).then(() => {
-      return { success: true, message: "已送出更新至雲端試算表！" };
     });
   }
 
@@ -360,11 +381,18 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
   async function syncRecordToCloud(category, record) {
     const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
     if (!gasUrl) {
-      showToast("💾 已儲存！(若需手機自動寫入 Google 試算表，請在「⚙️ 雲端設定」填入同步網址)");
+      showToast("💾 已儲存本機！(若需自動寫入 Google 試算表，請至「⚙️ 雲端設定」填入同步網址)");
       return;
     }
 
-    showToast("☁️ 正在即時同步寫入 Google 雲端試算表...");
+    if (gasUrl.includes("docs.google.com/spreadsheets")) {
+      updateSyncBadge();
+      showToast("⚠️ 儲存成功，但設定中的網址是試算表連結，非 Apps Script，無法寫入雲端");
+      return;
+    }
+
+    updateSyncBadge("syncing");
+    showToast("☁️ 正在同步至 Google 雲端試算表...");
 
     try {
       const res = await sendToGAS(gasUrl, {
@@ -373,21 +401,19 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         data: record
       });
 
-      if (res && res.success !== false) {
-        showToast("✅ 已成功寫入 Google 雲端試算表！其他人已可查看最新數字！");
-      } else {
-        showToast("⚠️ 本機已儲存，雲端回應：" + (res.message || "請檢查設定"));
-      }
+      updateSyncBadge("ready");
+      showToast("✅ " + (res.message || "已成功寫入 Google 雲端試算表！"));
     } catch (err) {
       console.warn("雲端同步連線異常:", err);
-      showToast("⚠️ 本機已儲存，雲端同步失敗（請確認連線或設定網址）");
+      updateSyncBadge("failed");
+      showToast("⚠️ 本機已儲存，但雲端未寫入：" + err.message);
     }
   }
 
   // 同步更新至 Google 雲端試算表
   async function syncUpdateToCloud(category, record, oldRecord) {
     const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
-    if (!gasUrl) return;
+    if (!gasUrl || gasUrl.includes("docs.google.com/spreadsheets")) return;
 
     try {
       await sendToGAS(gasUrl, {
@@ -404,7 +430,7 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
   // 同步刪除至 Google 雲端試算表
   async function syncDeleteToCloud(category, record) {
     const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
-    if (!gasUrl) return;
+    if (!gasUrl || gasUrl.includes("docs.google.com/spreadsheets")) return;
 
     try {
       await sendToGAS(gasUrl, {
@@ -1539,9 +1565,42 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
   // 設定與備份管理
   function setupBackupAndExport() {
     const backupModal = document.getElementById("backupModal");
+    const inputGas = document.getElementById("inputGasUrl");
+    const hintGas = document.getElementById("gasUrlHint");
+
+    function validateGasInput() {
+      if (!inputGas || !hintGas) return;
+      const v = inputGas.value.trim();
+      if (!v) {
+        hintGas.style.display = "none";
+        return;
+      }
+      if (v.includes("docs.google.com/spreadsheets")) {
+        hintGas.style.display = "block";
+        hintGas.style.color = "#dc2626";
+        hintGas.innerHTML = "❌ <strong>這是試算表檢視連結，不是 Apps Script 網頁應用程式！</strong><br>無法用於寫入。請參考下方說明部署 Apps Script 並取得以 <code>/exec</code> 結尾的網址。";
+      } else if (!v.includes("script.google.com")) {
+        hintGas.style.display = "block";
+        hintGas.style.color = "#b45309";
+        hintGas.innerHTML = "⚠️ 網址需為 <code>https://script.google.com/macros/s/.../exec</code>";
+      } else if (v.includes("/exec")) {
+        hintGas.style.display = "block";
+        hintGas.style.color = "#15803d";
+        hintGas.innerHTML = "✅ 網址格式正確！請點擊「⚡ 測試連線」驗證。";
+      } else {
+        hintGas.style.display = "block";
+        hintGas.style.color = "#b45309";
+        hintGas.innerHTML = "⚠️ 請確認複製的是「網頁應用程式網址」(以 <code>/exec</code> 結尾)";
+      }
+    }
+
+    if (inputGas) {
+      inputGas.addEventListener("input", validateGasInput);
+    }
+
     document.getElementById("btnBackup").addEventListener("click", () => {
-      const inputGas = document.getElementById("inputGasUrl");
       if (inputGas) inputGas.value = localStorage.getItem(GAS_URL_KEY) || "";
+      validateGasInput();
       updateSyncBadge();
       backupModal.classList.add("open");
     });
@@ -1552,9 +1611,13 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
     // 儲存 Google Apps Script 同步網址
     document.getElementById("btnSaveGasUrl").addEventListener("click", () => {
       const url = (document.getElementById("inputGasUrl").value || "").trim();
+      if (url.includes("docs.google.com/spreadsheets")) {
+        alert("⚠️ 無法儲存：\n您填入的是 Google 試算表的檢視連結，不是 Apps Script 網頁應用程式網址！\n\n請依照下方 2 分鐘步驟部署 Apps Script，取得以 /exec 結尾的網址後再貼上。");
+        return;
+      }
       localStorage.setItem(GAS_URL_KEY, url);
       updateSyncBadge();
-      showToast(url ? "✅ 雲端同步網址已儲存！手機記帳將自動寫入試算表。" : "已清除同步網址（僅本機儲存）");
+      showToast(url ? "✅ 雲端同步網址已儲存！請點「⚡ 測試連線」確認通訊。" : "已清除同步網址（僅手機本機儲存）");
     });
 
     // 測試連線
@@ -1564,21 +1627,77 @@ function findFirstEmptyRow(sheet, colIndex, startRow) {
         alert("請先輸入 Google Apps Script 網頁應用程式網址！");
         return;
       }
-      showToast("⚡ 正在測試與 Google 雲端試算表連線...");
+      if (url.includes("docs.google.com/spreadsheets")) {
+        alert("⚠️ 您輸入的是 Google 試算表檢視連結，不是 Apps Script 網頁應用程式！\n無法用於寫入。請參考下方說明部署 Apps Script。");
+        return;
+      }
+
+      showToast("⚡ 正在測試連線至 Google Apps Script...");
       try {
         const res = await sendToGAS(url, { action: "ping" });
-        alert("🎉 連線成功！\n" + (res.message || "Google Apps Script 雲端同步已就緒！"));
+        updateSyncBadge("ready");
+        alert("🎉 連線成功！\n" + (res.message || "Google Apps Script 雲端同步已就緒！手機記帳將即時寫入試算表！"));
       } catch (e) {
-        alert("連線失敗：" + e.message + "\n請確認網址正確且部署設定為「所有人 (Anyone) 具存取權」");
+        updateSyncBadge("failed");
+        alert("❌ 連線測試失敗：\n" + e.message + "\n\n常見解決方式：\n1. 在 Apps Script 點右上角「部署」→「管理部署」\n2. 確認「誰可以存取」是否設定為「任何人 (Anyone)」\n3. 確認複製的是「網頁應用程式」網址 (/exec 結尾)");
       }
     });
+
+    // 補傳本機所有紀錄至 Google 試算表
+    const btnPush = document.getElementById("btnPushLocalToCloud");
+    if (btnPush) {
+      btnPush.addEventListener("click", async () => {
+        const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
+        if (!gasUrl || !gasUrl.includes("script.google.com")) {
+          alert("請先設定正確的 Apps Script 網頁應用程式網址並測試連線成功後，再執行補傳！");
+          return;
+        }
+
+        const totalRecords = appData.medicalCare.length + appData.household.length + appData.transfers.length;
+        if (!confirm(`確定要將本機現有的全部紀錄（共 ${totalRecords} 筆）補傳寫入 Google 試算表嗎？\n\n注意：這會逐筆寫入試算表末端。`)) {
+          return;
+        }
+
+        btnPush.disabled = true;
+        showToast("⏳ 正在開始補傳紀錄至 Google 試算表...");
+
+        try {
+          // 先傳送 ping 驗證
+          await sendToGAS(gasUrl, { action: "ping" });
+
+          let successCount = 0;
+          for (let i = 0; i < appData.medicalCare.length; i++) {
+            const r = appData.medicalCare[i];
+            await sendToGAS(gasUrl, { action: "add", category: "medical", data: r });
+            successCount++;
+            if (i % 5 === 0) showToast(`⏳ 正在補傳就醫照顧... (${i+1}/${appData.medicalCare.length})`);
+          }
+          for (let i = 0; i < appData.household.length; i++) {
+            const r = appData.household[i];
+            await sendToGAS(gasUrl, { action: "add", category: "household", data: r });
+            successCount++;
+            if (i % 5 === 0) showToast(`⏳ 正在補傳家用繳款... (${i+1}/${appData.household.length})`);
+          }
+          for (let i = 0; i < appData.transfers.length; i++) {
+            const r = appData.transfers[i];
+            await sendToGAS(gasUrl, { action: "add", category: "transfers", data: r });
+            successCount++;
+          }
+
+          alert(`🎉 補傳完成！共成功寫入 ${successCount} 筆紀錄至 Google 雲端試算表！\n請打開試算表查看最新資料。`);
+        } catch (err) {
+          alert("❌ 補傳中斷：" + err.message);
+        } finally {
+          btnPush.disabled = false;
+        }
+      });
+    }
 
     // 複製 Google Apps Script 程式碼
     document.getElementById("btnCopyGasCode").addEventListener("click", () => {
       navigator.clipboard.writeText(GAS_CODE).then(() => {
         showToast("📋 已複製後端腳本！請到 Google 試算表 Apps Script 貼上。");
       }).catch(() => {
-        // Fallback
         const ta = document.createElement("textarea");
         ta.value = GAS_CODE;
         document.body.appendChild(ta);

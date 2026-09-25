@@ -22,15 +22,15 @@
         <div class="brand-icon">🏠</div>
         <div>
           <h1 class="brand-title">家庭與照顧開銷</h1>
-          <div class="brand-sub">收支查閱與記帳管理</div>
+          <div class="brand-sub">手機記帳 ⚡ 雲端試算表即時同步</div>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn btn-primary btn-sm" id="btnSyncCloud" title="從 Google 雲端試算表同步最新資料">
-          <span class="sync-icon">🔄</span> 同步雲端
+        <button class="btn btn-primary btn-sm" id="btnSyncCloud" title="從 Google 雲端試算表拉取最新資料">
+          <span class="sync-icon">🔄</span> 重新拉取
         </button>
         <button class="btn btn-secondary btn-sm" id="btnExport" title="匯出 Excel/CSV 資料">📥 匯出</button>
-        <button class="btn btn-secondary btn-sm" id="btnBackup" title="設定與雲端連結">⚙️ 設定</button>
+        <button class="btn btn-secondary btn-sm" id="btnBackup" title="設定雲端同步">⚙️ 雲端設定</button>
       </div>
     </div>
   </header>
@@ -144,7 +144,7 @@
           </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="btnCancelMed">取消</button>
-            <button type="submit" class="btn btn-primary btn-sm">儲存花費紀錄</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存並同步至雲端試算表</button>
           </div>
         </form>
       </div>
@@ -225,7 +225,7 @@
           </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="btnCancelHouse">取消</button>
-            <button type="submit" class="btn btn-primary btn-sm">儲存繳款紀錄</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存並同步至雲端試算表</button>
           </div>
         </form>
       </div>
@@ -296,7 +296,7 @@
           </div>
           <div class="form-actions">
             <button type="button" class="btn btn-secondary btn-sm" id="btnCancelTransfer">取消</button>
-            <button type="submit" class="btn btn-primary btn-sm">儲存轉帳紀錄</button>
+            <button type="submit" class="btn btn-primary btn-sm">儲存並同步至雲端試算表</button>
           </div>
         </form>
       </div>
@@ -396,22 +396,47 @@
   <div class="modal-overlay" id="backupModal">
     <div class="modal-content">
       <div class="modal-head">
-        <h3 class="modal-title">⚙️ 設定與雲端資料管理</h3>
+        <h3 class="modal-title">⚙️ 雲端同步與系統設定</h3>
         <button class="modal-close-btn" id="btnCloseBackupModal">&times;</button>
       </div>
       <div style="display: flex; flex-direction: column; gap: 14px;">
         
-        <!-- 雲端試算表即時同步卡片 -->
-        <div style="background: var(--primary-light); padding: 14px; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.25);">
+        <!-- 手機更新自動同步至雲端試算表設定 -->
+        <div style="background: #eff6ff; padding: 14px; border-radius: var(--radius-sm); border: 1px solid #bfdbfe;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
-            <strong style="font-size: 0.95rem; color: var(--primary-dark);">☁️ Google 雲端試算表</strong>
-            <span id="syncBadge" style="font-size: 0.72rem; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">已連結</span>
+            <strong style="font-size: 0.95rem; color: #1e40af;">☁️ 手機寫入 Google 試算表同步</strong>
+            <span id="syncBadge" style="font-size: 0.72rem; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">未設定</span>
           </div>
-          <p style="font-size: 0.82rem; color: var(--slate-600); margin-bottom: 10px; line-height: 1.4;">
-            直接與您的 Google 線上試算表即時連線。若雲端表格有更新項目或金額，點擊同步即可立即更新網頁與手機版面！
+          <p style="font-size: 0.8rem; color: #3b82f6; margin-bottom: 8px; line-height: 1.4;">
+            設定好 Google Apps Script 網址後，您在手機上新增或修改花費，將自動即時寫入 Google 試算表，讓家人隨時查看最新數字！
+          </p>
+          <div class="form-group" style="margin-bottom: 8px;">
+            <label for="inputGasUrl" style="font-size: 0.78rem;">Google Apps Script 網頁應用程式網址：</label>
+            <input type="url" id="inputGasUrl" class="form-control" placeholder="https://script.google.com/macros/s/.../exec" style="font-size: 0.82rem;">
+          </div>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" id="btnSaveGasUrl">💾 儲存同步網址</button>
+            <button class="btn btn-secondary btn-sm" id="btnTestGasUrl">⚡ 測試連線</button>
+            <button class="btn btn-secondary btn-sm" id="btnCopyGasCode">📋 複製後端腳本代碼</button>
+          </div>
+          <details style="margin-top: 10px; font-size: 0.78rem; color: var(--slate-600); background: #ffffff; padding: 8px; border-radius: 6px;">
+            <summary style="cursor: pointer; font-weight: 600; color: #1d4ed8;">點此查看 3 步驟部屬說明</summary>
+            <ol style="padding-left: 20px; margin-top: 6px; line-height: 1.5;">
+              <li>打開 <a href="https://docs.google.com/spreadsheets/d/1wut51zEYI7Ij0aBbCx-b7fpEA_n0lhdMht7PtEjnGHY/edit?gid=933525900#gid=933525900" target="_blank" style="color: #2563eb;">Google 試算表</a>，點擊選單「擴充功能」→「Apps Script」。</li>
+              <li>點上方「📋 複製後端腳本代碼」按鈕，將代碼貼入取代原有內容後儲存。</li>
+              <li>點右上方「部署」→「新部署」→ 類型選「網頁應用程式」，執行身分選「我」，誰可以存取選「任何人」，部署後複製產生的網址貼入上方輸入框！</li>
+            </ol>
+          </details>
+        </div>
+
+        <!-- 雲端試算表手動拉取最新資料 -->
+        <div style="background: var(--slate-50); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+          <strong style="font-size: 0.9rem; display: block; margin-bottom: 4px;">🔄 從 Google 試算表拉取資料</strong>
+          <p style="font-size: 0.8rem; color: var(--slate-500); margin-bottom: 8px;">
+            若其他人直接在 Google 試算表新增資料，可點擊拉取最新進度覆蓋本機。
           </p>
           <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button class="btn btn-primary btn-sm" id="btnModalSyncCloud">🔄 立即同步最新數據</button>
+            <button class="btn btn-secondary btn-sm" id="btnModalSyncCloud">🔄 立即拉取最新數據</button>
             <a href="https://docs.google.com/spreadsheets/d/1wut51zEYI7Ij0aBbCx-b7fpEA_n0lhdMht7PtEjnGHY/edit?gid=933525900#gid=933525900" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration: none;">🔗 開啟雲端試算表</a>
           </div>
         </div>

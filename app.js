@@ -3,7 +3,118 @@
   "use strict";
 
   const STORAGE_KEY = "FAMILY_EXPENSE_DATA_V1";
+  const GAS_URL_KEY = "FAMILY_EXPENSE_GAS_URL";
   const SPREADSHEET_ID = "1wut51zEYI7Ij0aBbCx-b7fpEA_n0lhdMht7PtEjnGHY";
+
+  // Google Apps Script 代碼字串 (供一鍵複製)
+  const GAS_CODE = `function doGet(e) { return handleRequest(e); }
+function doPost(e) { return handleRequest(e); }
+function handleRequest(e) {
+  var output = { success: false, message: "" };
+  try {
+    var params = {};
+    if (e.parameter && e.parameter.payload) {
+      params = JSON.parse(e.parameter.payload);
+    } else if (e.postData && e.postData.contents) {
+      params = JSON.parse(e.postData.contents);
+    } else if (e.parameter) {
+      params = e.parameter;
+    }
+    var action = params.action || "ping";
+    var category = params.category;
+    var data = params.data || params;
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (action === "ping") {
+      output = { success: true, message: "Google Apps Script 雲端同步服務正常運作中！", time: new Date() };
+    } else if (action === "add") {
+      output = addRecord(ss, category, data);
+    } else {
+      output = { success: false, message: "未知的操作指令：" + action };
+    }
+  } catch (err) {
+    output = { success: false, message: "執行錯誤：" + err.toString() };
+  }
+  var callback = (e.parameter && e.parameter.callback);
+  if (callback) {
+    return ContentService.createTextOutput(callback + "(" + JSON.stringify(output) + ")").setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+  return ContentService.createTextOutput(JSON.stringify(output)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function addRecord(ss, category, data) {
+  var dateStr = formatDateToYYMMDD(data.date);
+  var amount = Number(data.amount) || 0;
+  var note = data.note || "";
+  if (category === "medical") {
+    var sheet = ss.getSheetByName("就醫、照顧花費記帳");
+    if (!sheet) return { success: false, message: "找不到工作表「就醫、照顧花費記帳」" };
+    var item = data.item || "其他";
+    var type = "其他";
+    if (/看診|住院/.test(item)) type = "醫療";
+    else if (/長照|看護/.test(item)) type = "照護";
+    var momAmt = "";
+    if (note.indexOf("老媽") !== -1) momAmt = amount;
+    var targetRow = findFirstEmptyRow(sheet, 2, 4);
+    sheet.getRange(targetRow, 2).setValue(dateStr);
+    sheet.getRange(targetRow, 3).setValue(item);
+    sheet.getRange(targetRow, 4).setValue(type);
+    sheet.getRange(targetRow, 5).setValue(amount);
+    sheet.getRange(targetRow, 6).setValue(note);
+    if (momAmt !== "") sheet.getRange(targetRow, 7).setValue(momAmt);
+    return { success: true, message: "已寫入就醫照顧第 " + targetRow + " 列！", row: targetRow };
+  } else if (category === "household") {
+    var sheet = ss.getSheetByName("家用花費、繳款紀錄");
+    if (!sheet) return { success: false, message: "找不到工作表「家用花費、繳款紀錄」" };
+    var item = data.item || "其他";
+    var account = "";
+    var type = "其他";
+    if (item === "房貸轉帳") { item = "轉帳"; account = "永豐"; type = "房貸"; }
+    else if (/台電|北水|瓦斯/.test(item)) { type = "水電"; account = "竑郵局"; }
+    else if (item === "中華電信") { type = "其他"; account = "竑郵局"; }
+    var targetRow = findFirstEmptyRow(sheet, 2, 4);
+    sheet.getRange(targetRow, 2).setValue(dateStr);
+    sheet.getRange(targetRow, 3).setValue(item);
+    sheet.getRange(targetRow, 4).setValue(account);
+    sheet.getRange(targetRow, 5).setValue(type);
+    sheet.getRange(targetRow, 6).setValue(amount);
+    sheet.getRange(targetRow, 7).setValue(note);
+    return { success: true, message: "已寫入家用繳款第 " + targetRow + " 列！", row: targetRow };
+  } else if (category === "transfers") {
+    var sheet = ss.getSheetByName("老哥轉帳記錄");
+    if (!sheet) return { success: false, message: "找不到工作表「老哥轉帳記錄」" };
+    var targetRow = findFirstEmptyRow(sheet, 2, 5);
+    sheet.getRange(targetRow, 2).setValue(dateStr);
+    sheet.getRange(targetRow, 7).setValue(amount);
+    sheet.getRange(targetRow, 8).setValue(note);
+    return { success: true, message: "已寫入老哥轉帳第 " + targetRow + " 列！", row: targetRow };
+  }
+  return { success: false, message: "不支援的類別" };
+}
+
+function formatDateToYYMMDD(val) {
+  if (!val) {
+    var now = new Date();
+    var yy = String(now.getFullYear()).substring(2);
+    var mm = String(now.getMonth() + 1).padStart(2, "0");
+    var dd = String(now.getDate()).padStart(2, "0");
+    return Number(yy + mm + dd);
+  }
+  var s = String(val).replace(/[-/]/g, "").trim();
+  if (s.length === 8) return Number(s.substring(2));
+  if (s.length === 6) return Number(s);
+  return val;
+}
+
+function findFirstEmptyRow(sheet, colIndex, startRow) {
+  var maxRows = sheet.getMaxRows();
+  var values = sheet.getRange(startRow, colIndex, maxRows - startRow + 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    var v = values[i][0];
+    if (v === "" || v === null || v === undefined) return startRow + i;
+  }
+  sheet.appendRow([""]);
+  return sheet.getLastRow();
+}`;
 
   // 資料結構狀態
   let appData = {
@@ -19,13 +130,13 @@
     transfer: { keyword: "", year: "ALL" }
   };
 
-  // 工具函式：格式化千分位貨幣
+  // 格式化千分位貨幣
   function formatMoney(num) {
     if (num === null || num === undefined || isNaN(num)) return "NT$ 0";
     return "NT$ " + Math.round(num).toLocaleString("en-US");
   }
 
-  // 工具函式：解析各種日期字串為 YYYY-MM-DD
+  // 解析日期字串為 YYYY-MM-DD
   function parseDateString(v) {
     if (v === null || v === undefined) return null;
     const s = String(v).split('.')[0].trim();
@@ -39,7 +150,7 @@
     return null;
   }
 
-  // 工具函式：取得今日日期 (YYYY-MM-DD)
+  // 取得今日日期 (YYYY-MM-DD)
   function getTodayString() {
     const today = new Date();
     const y = today.getFullYear();
@@ -56,7 +167,7 @@
     toast.classList.add("show");
     setTimeout(() => {
       toast.classList.remove("show");
-    }, 2800);
+    }, 3200);
   }
 
   // 初始化資料載入
@@ -90,13 +201,99 @@
 
   function updateSyncBadge() {
     const badge = document.getElementById("syncBadge");
-    const lastSync = localStorage.getItem("LAST_CLOUD_SYNC");
+    const gasUrl = localStorage.getItem(GAS_URL_KEY);
     if (badge) {
-      if (lastSync) {
-        badge.textContent = `已同步 (${lastSync})`;
+      if (gasUrl && gasUrl.trim().startsWith("http")) {
+        badge.textContent = `⚡ 雲端寫入同步中`;
+        badge.style.background = "#dcfce7";
+        badge.style.color = "#15803d";
       } else {
-        badge.textContent = `已連結`;
+        badge.textContent = `僅本機儲存 (未設同步網址)`;
+        badge.style.background = "#f1f5f9";
+        badge.style.color = "#64748b";
       }
+    }
+  }
+
+  // 雲端寫入通訊器 (支援 JSONP 與 fetch fallback)
+  function sendToGAS(gasUrl, payload) {
+    return new Promise((resolve, reject) => {
+      const cbName = "gasSyncCb_" + Math.random().toString(36).substring(2, 9);
+      const script = document.createElement("script");
+      let finished = false;
+
+      const timer = setTimeout(() => {
+        if (!finished) {
+          finished = true;
+          cleanup();
+          // 若 JSONP 逾時，嘗試以 no-cors POST 發送
+          fallbackPost(gasUrl, payload).then(resolve).catch(reject);
+        }
+      }, 7000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = function (res) {
+        if (!finished) {
+          finished = true;
+          cleanup();
+          resolve(res);
+        }
+      };
+
+      const query = `payload=${encodeURIComponent(JSON.stringify(payload))}&callback=${cbName}&_t=${Date.now()}`;
+      script.src = gasUrl + (gasUrl.includes("?") ? "&" : "?") + query;
+      script.onerror = function () {
+        if (!finished) {
+          finished = true;
+          cleanup();
+          fallbackPost(gasUrl, payload).then(resolve).catch(reject);
+        }
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  function fallbackPost(gasUrl, payload) {
+    return fetch(gasUrl, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify(payload)
+    }).then(() => {
+      return { success: true, message: "已送出更新至雲端試算表！" };
+    });
+  }
+
+  // 自動同步單筆寫入至 Google 雲端試算表
+  async function syncRecordToCloud(category, record) {
+    const gasUrl = (localStorage.getItem(GAS_URL_KEY) || "").trim();
+    if (!gasUrl) {
+      showToast("💾 已儲存！(若需手機自動寫入 Google 試算表，請在「⚙️ 雲端設定」填入同步網址)");
+      return;
+    }
+
+    showToast("☁️ 正在即時同步寫入 Google 雲端試算表...");
+
+    try {
+      const res = await sendToGAS(gasUrl, {
+        action: "add",
+        category: category,
+        data: record
+      });
+
+      if (res && res.success !== false) {
+        showToast("✅ 已成功寫入 Google 雲端試算表！其他人已可查看最新數字！");
+      } else {
+        showToast("⚠️ 本機已儲存，雲端回應：" + (res.message || "請檢查設定"));
+      }
+    } catch (err) {
+      console.warn("雲端同步連線異常:", err);
+      showToast("⚠️ 本機已儲存，雲端同步失敗（請確認連線或設定網址）");
     }
   }
 
@@ -135,40 +332,24 @@
 
   // 表單摺疊切換
   function setupFormToggles() {
-    // 就醫表單
     const btnMed = document.getElementById("btnToggleMedForm");
     const cardMed = document.getElementById("formMedCard");
     const btnCancelMed = document.getElementById("btnCancelMed");
-    btnMed.addEventListener("click", () => {
-      cardMed.classList.toggle("open");
-    });
-    btnCancelMed.addEventListener("click", () => {
-      cardMed.classList.remove("open");
-    });
+    btnMed.addEventListener("click", () => cardMed.classList.toggle("open"));
+    btnCancelMed.addEventListener("click", () => cardMed.classList.remove("open"));
 
-    // 家用表單
     const btnHouse = document.getElementById("btnToggleHouseForm");
     const cardHouse = document.getElementById("formHouseCard");
     const btnCancelHouse = document.getElementById("btnCancelHouse");
-    btnHouse.addEventListener("click", () => {
-      cardHouse.classList.toggle("open");
-    });
-    btnCancelHouse.addEventListener("click", () => {
-      cardHouse.classList.remove("open");
-    });
+    btnHouse.addEventListener("click", () => cardHouse.classList.toggle("open"));
+    btnCancelHouse.addEventListener("click", () => cardHouse.classList.remove("open"));
 
-    // 老哥轉帳表單
     const btnTransfer = document.getElementById("btnToggleTransferForm");
     const cardTransfer = document.getElementById("formTransferCard");
     const btnCancelTransfer = document.getElementById("btnCancelTransfer");
-    btnTransfer.addEventListener("click", () => {
-      cardTransfer.classList.toggle("open");
-    });
-    btnCancelTransfer.addEventListener("click", () => {
-      cardTransfer.classList.remove("open");
-    });
+    btnTransfer.addEventListener("click", () => cardTransfer.classList.toggle("open"));
+    btnCancelTransfer.addEventListener("click", () => cardTransfer.classList.remove("open"));
 
-    // 預設日期為今日
     const today = getTodayString();
     document.getElementById("medDate").value = today;
     document.getElementById("houseDate").value = today;
@@ -542,7 +723,7 @@
     if (index !== -1) {
       list.splice(index, 1);
       saveData();
-      showToast("已刪除紀錄");
+      showToast("已從本機刪除紀錄");
       if (category === "medical") renderMedicalList();
       else if (category === "household") renderHouseholdList();
       else if (category === "transfers") renderTransferList();
@@ -596,14 +777,12 @@
     document.getElementById("editModal").classList.add("open");
   }
 
-  // 關閉編輯 Modal
   function closeEditModal() {
     document.getElementById("editModal").classList.remove("open");
   }
 
   // 綁定篩選器監聽
   function setupFilters() {
-    // 就醫搜尋
     const searchMed = document.getElementById("searchMed");
     const filterMedItem = document.getElementById("filterMedItem");
     const filterMedYear = document.getElementById("filterMedYear");
@@ -620,7 +799,6 @@
       renderMedicalList();
     });
 
-    // 家用搜尋
     const searchHouse = document.getElementById("searchHouse");
     const filterHouseItem = document.getElementById("filterHouseItem");
     const filterHouseYear = document.getElementById("filterHouseYear");
@@ -637,7 +815,6 @@
       renderHouseholdList();
     });
 
-    // 老哥轉帳搜尋
     const searchTransfer = document.getElementById("searchTransfer");
     const filterTransferYear = document.getElementById("filterTransferYear");
     searchTransfer.addEventListener("input", (e) => {
@@ -652,7 +829,7 @@
 
   // 綁定表單送出（新增與編輯）
   function setupForms() {
-    // 1. 新增就醫紀錄
+    // 1. 新增就醫紀錄 (手機更新 -> 本機儲存 + 自動寫入 Google 試算表)
     document.getElementById("formMed").addEventListener("submit", (e) => {
       e.preventDefault();
       const date = document.getElementById("medDate").value;
@@ -670,15 +847,17 @@
 
       appData.medicalCare.unshift(newRecord);
       saveData();
-      showToast("已成功新增就醫花費紀錄！");
       document.getElementById("medAmount").value = "";
       document.getElementById("medNote").value = "";
       document.getElementById("formMedCard").classList.remove("open");
       renderMedicalList();
       renderDashboard();
+
+      // 同步寫入 Google 試算表
+      syncRecordToCloud("medical", newRecord);
     });
 
-    // 2. 新增家用紀錄
+    // 2. 新增家用紀錄 (手機更新 -> 本機儲存 + 自動寫入 Google 試算表)
     document.getElementById("formHouse").addEventListener("submit", (e) => {
       e.preventDefault();
       const date = document.getElementById("houseDate").value;
@@ -696,15 +875,16 @@
 
       appData.household.unshift(newRecord);
       saveData();
-      showToast("已成功新增家用繳款紀錄！");
       document.getElementById("houseAmount").value = "";
       document.getElementById("houseNote").value = "";
       document.getElementById("formHouseCard").classList.remove("open");
       renderHouseholdList();
       renderDashboard();
+
+      syncRecordToCloud("household", newRecord);
     });
 
-    // 3. 新增老哥轉帳紀錄
+    // 3. 新增老哥轉帳紀錄 (手機更新 -> 本機儲存 + 自動寫入 Google 試算表)
     document.getElementById("formTransfer").addEventListener("submit", (e) => {
       e.preventDefault();
       const date = document.getElementById("transferDate").value;
@@ -720,12 +900,13 @@
 
       appData.transfers.unshift(newRecord);
       saveData();
-      showToast("已成功新增老哥轉帳紀錄！");
       document.getElementById("transferAmount").value = "";
       document.getElementById("transferNote").value = "";
       document.getElementById("formTransferCard").classList.remove("open");
       renderTransferList();
       renderDashboard();
+
+      syncRecordToCloud("transfers", newRecord);
     });
 
     // 4. 編輯表單送出
@@ -756,12 +937,11 @@
       }
     });
 
-    // 編輯 Modal 取消按鈕
     document.getElementById("btnCancelEdit").addEventListener("click", closeEditModal);
     document.getElementById("btnCloseEditModal").addEventListener("click", closeEditModal);
   }
 
-  // Google 雲端試算表 JSONP 擷取器
+  // Google 雲端試算表拉取器
   function fetchSheetDataJSONP(sheetName) {
     return new Promise((resolve, reject) => {
       const cbName = "gvizCb_" + Math.random().toString(36).substring(2, 9);
@@ -795,8 +975,8 @@
     });
   }
 
-  // 執行全量雲端試算表同步
-  async function syncFromGoogleSheets() {
+  // 從 Google 試算表拉取最新數據
+  async function pullFromGoogleSheets() {
     const btnSync = document.getElementById("btnSyncCloud");
     const btnModalSync = document.getElementById("btnModalSyncCloud");
     const syncIcon = btnSync ? btnSync.querySelector(".sync-icon") : null;
@@ -805,17 +985,16 @@
     if (btnSync) btnSync.disabled = true;
     if (btnModalSync) btnModalSync.disabled = true;
 
-    showToast("⏳ 正在從 Google 雲端試算表下載最新資料...");
+    showToast("⏳ 正在從 Google 雲端試算表讀取最新資料...");
 
     try {
-      // 平行拉取 3 個工作表
       const [rowsMed, rowsHouse, rowsTransfer] = await Promise.all([
         fetchSheetDataJSONP("就醫、照顧花費記帳"),
         fetchSheetDataJSONP("家用花費、繳款紀錄"),
         fetchSheetDataJSONP("老哥轉帳記錄")
       ]);
 
-      // 1. 解析就醫照顧
+      // 1. 就醫照顧
       const newMed = [];
       let medId = 1;
       for (const r of rowsMed) {
@@ -867,7 +1046,7 @@
         });
       }
 
-      // 2. 解析家用花費
+      // 2. 家用花費
       const newHouse = [];
       let houseId = 1;
       for (const r of rowsHouse) {
@@ -882,17 +1061,12 @@
         const notes = note ? [note] : [];
 
         let itemCat = "其他";
-        if (rawItem.includes("台電")) {
-          itemCat = "台電";
-        } else if (rawItem.includes("中華電信")) {
-          itemCat = "中華電信";
-        } else if (rawItem.includes("瓦斯")) {
-          itemCat = "瓦斯";
-        } else if (rawItem.includes("北水") || rawItem.includes("水")) {
-          itemCat = "北水";
-        } else if (rawItem.includes("轉帳")) {
-          itemCat = "房貸轉帳";
-        } else if (rawItem.includes("墓園管理費")) {
+        if (rawItem.includes("台電")) itemCat = "台電";
+        else if (rawItem.includes("中華電信")) itemCat = "中華電信";
+        else if (rawItem.includes("瓦斯")) itemCat = "瓦斯";
+        else if (rawItem.includes("北水") || rawItem.includes("水")) itemCat = "北水";
+        else if (rawItem.includes("轉帳")) itemCat = "房貸轉帳";
+        else if (rawItem.includes("墓園管理費")) {
           itemCat = "墓園管理費";
           if (rawItem.includes("土城")) notes.unshift("土城");
           else if (rawItem.includes("八里")) notes.unshift("八里");
@@ -910,7 +1084,7 @@
         });
       }
 
-      // 3. 解析老哥轉帳
+      // 3. 老哥轉帳
       const newTransfer = [];
       let transferId = 1;
       for (const r of rowsTransfer) {
@@ -934,7 +1108,6 @@
         }
       }
 
-      // 更新全域狀態
       appData = {
         medicalCare: newMed,
         household: newHouse,
@@ -942,20 +1115,15 @@
       };
 
       saveData();
-      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      localStorage.setItem("LAST_CLOUD_SYNC", nowStr);
-      updateSyncBadge();
-
-      // 重新繪製介面
       renderDashboard();
       renderMedicalList();
       renderHouseholdList();
       renderTransferList();
 
-      showToast("🎉 已成功從 Google 雲端試算表同步最新資料！");
+      showToast("🎉 已成功拉取 Google 雲端試算表最新資料！");
     } catch (err) {
-      console.error("雲端同步失敗:", err);
-      showToast("❌ 雲端同步失敗：" + err.message);
+      console.error("雲端讀取失敗:", err);
+      showToast("❌ 雲端讀取失敗：" + err.message);
     } finally {
       if (syncIcon) syncIcon.classList.remove("spinning");
       if (btnSync) btnSync.disabled = false;
@@ -967,22 +1135,65 @@
   function setupBackupAndExport() {
     const backupModal = document.getElementById("backupModal");
     document.getElementById("btnBackup").addEventListener("click", () => {
+      const inputGas = document.getElementById("inputGasUrl");
+      if (inputGas) inputGas.value = localStorage.getItem(GAS_URL_KEY) || "";
+      updateSyncBadge();
       backupModal.classList.add("open");
     });
     document.getElementById("btnCloseBackupModal").addEventListener("click", () => {
       backupModal.classList.remove("open");
     });
 
-    // 雲端同步按鈕綁定
+    // 儲存 Google Apps Script 同步網址
+    document.getElementById("btnSaveGasUrl").addEventListener("click", () => {
+      const url = (document.getElementById("inputGasUrl").value || "").trim();
+      localStorage.setItem(GAS_URL_KEY, url);
+      updateSyncBadge();
+      showToast(url ? "✅ 雲端同步網址已儲存！手機記帳將自動寫入試算表。" : "已清除同步網址（僅本機儲存）");
+    });
+
+    // 測試連線
+    document.getElementById("btnTestGasUrl").addEventListener("click", async () => {
+      const url = (document.getElementById("inputGasUrl").value || "").trim();
+      if (!url) {
+        alert("請先輸入 Google Apps Script 網頁應用程式網址！");
+        return;
+      }
+      showToast("⚡ 正在測試與 Google 雲端試算表連線...");
+      try {
+        const res = await sendToGAS(url, { action: "ping" });
+        alert("🎉 連線成功！\n" + (res.message || "Google Apps Script 雲端同步已就緒！"));
+      } catch (e) {
+        alert("連線失敗：" + e.message + "\n請確認網址正確且部署設定為「所有人 (Anyone) 具存取權」");
+      }
+    });
+
+    // 複製 Google Apps Script 程式碼
+    document.getElementById("btnCopyGasCode").addEventListener("click", () => {
+      navigator.clipboard.writeText(GAS_CODE).then(() => {
+        showToast("📋 已複製後端腳本！請到 Google 試算表 Apps Script 貼上。");
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement("textarea");
+        ta.value = GAS_CODE;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        showToast("📋 已複製後端腳本！");
+      });
+    });
+
+    // 雲端拉取按鈕綁定
     const btnSyncCloud = document.getElementById("btnSyncCloud");
-    if (btnSyncCloud) btnSyncCloud.addEventListener("click", syncFromGoogleSheets);
+    if (btnSyncCloud) btnSyncCloud.addEventListener("click", pullFromGoogleSheets);
 
     const btnModalSyncCloud = document.getElementById("btnModalSyncCloud");
-    if (btnModalSyncCloud) btnModalSyncCloud.addEventListener("click", syncFromGoogleSheets);
+    if (btnModalSyncCloud) btnModalSyncCloud.addEventListener("click", pullFromGoogleSheets);
 
-    // 匯出 CSV (支援 Excel UTF-8 with BOM)
+    // 匯出 CSV (Excel UTF-8 with BOM)
     function exportToCSV() {
-      let csvContent = "\uFEFF"; // UTF-8 BOM
+      let csvContent = "\uFEFF";
       csvContent += "類別,日期,項目,金額NTD,備註\r\n";
 
       appData.medicalCare.forEach(r => {

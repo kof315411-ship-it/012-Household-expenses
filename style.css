@@ -376,6 +376,16 @@ body {
   background: var(--primary-hover);
 }
 
+.sync-icon.spinning {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .btn-secondary {
   background: var(--slate-100);
   color: var(--slate-700);

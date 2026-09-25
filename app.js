@@ -3,6 +3,7 @@
   "use strict";
 
   const STORAGE_KEY = "FAMILY_EXPENSE_DATA_V1";
+  const SPREADSHEET_ID = "1wut51zEYI7Ij0aBbCx-b7fpEA_n0lhdMht7PtEjnGHY";
 
   // 資料結構狀態
   let appData = {
@@ -24,6 +25,20 @@
     return "NT$ " + Math.round(num).toLocaleString("en-US");
   }
 
+  // 工具函式：解析各種日期字串為 YYYY-MM-DD
+  function parseDateString(v) {
+    if (v === null || v === undefined) return null;
+    const s = String(v).split('.')[0].trim();
+    if (s.length === 6 && /^\d+$/.test(s)) {
+      return `20${s.substring(0, 2)}-${s.substring(2, 4)}-${s.substring(4, 6)}`;
+    } else if (s.length === 8 && /^\d+$/.test(s)) {
+      return `${s.substring(0, 4)}-${s.substring(4, 6)}-${s.substring(6, 8)}`;
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return s;
+    }
+    return null;
+  }
+
   // 工具函式：取得今日日期 (YYYY-MM-DD)
   function getTodayString() {
     const today = new Date();
@@ -41,7 +56,7 @@
     toast.classList.add("show");
     setTimeout(() => {
       toast.classList.remove("show");
-    }, 2400);
+    }, 2800);
   }
 
   // 初始化資料載入
@@ -51,7 +66,6 @@
       if (stored) {
         appData = JSON.parse(stored);
       } else if (window.INITIAL_DATA) {
-        // 從 Excel 匯入的初始資料深拷貝
         appData = JSON.parse(JSON.stringify(window.INITIAL_DATA));
         saveData();
       }
@@ -61,6 +75,7 @@
         appData = JSON.parse(JSON.stringify(window.INITIAL_DATA));
       }
     }
+    updateSyncBadge();
   }
 
   // 儲存資料至 LocalStorage
@@ -73,13 +88,24 @@
     }
   }
 
+  function updateSyncBadge() {
+    const badge = document.getElementById("syncBadge");
+    const lastSync = localStorage.getItem("LAST_CLOUD_SYNC");
+    if (badge) {
+      if (lastSync) {
+        badge.textContent = `已同步 (${lastSync})`;
+      } else {
+        badge.textContent = `已連結`;
+      }
+    }
+  }
+
   // 標籤頁面切換
   function setupNavigation() {
     const desktopBtns = document.querySelectorAll(".desktop-nav .nav-tab-btn");
     const bottomBtns = document.querySelectorAll(".bottom-nav .bottom-tab-btn");
 
     function switchTab(tabId) {
-      // 切換按鈕狀態
       desktopBtns.forEach(btn => {
         btn.classList.toggle("active", btn.dataset.tab === tabId);
       });
@@ -87,12 +113,10 @@
         btn.classList.toggle("active", btn.dataset.tab === tabId);
       });
 
-      // 切換面板
       document.querySelectorAll(".tab-panel").forEach(panel => {
         panel.classList.toggle("active", panel.id === `tab-${tabId}`);
       });
 
-      // 重新渲染對應面板
       if (tabId === "dashboard") renderDashboard();
       if (tabId === "medical") renderMedicalList();
       if (tabId === "household") renderHouseholdList();
@@ -202,7 +226,6 @@
       if (stats[y]) stats[y].house += Number(r.amount) || 0;
     });
 
-    // 找出年度最大金額以做比例長度
     let maxVal = 100000;
     years.forEach(y => {
       maxVal = Math.max(maxVal, stats[y].inflow, stats[y].care + stats[y].house);
@@ -289,7 +312,6 @@
     appData.household.forEach(r => combined.push({ ...r, type: "household", typeName: "家用繳款" }));
     appData.transfers.forEach(r => combined.push({ ...r, type: "transfer", item: "轉帳", typeName: "老哥轉帳" }));
 
-    // 依日期由新至舊排序
     combined.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     const recent = combined.slice(0, 5);
 
@@ -332,10 +354,8 @@
       return true;
     });
 
-    // 依日期由新至舊排序
     filtered.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
-    // 計算小計與筆數
     const subtotal = filtered.reduce((s, x) => s + (Number(x.amount) || 0), 0);
     document.getElementById("medResultCount").textContent = filtered.length;
     document.getElementById("medResultTotal").textContent = formatMoney(subtotal);
@@ -354,11 +374,10 @@
       const card = document.createElement("div");
       card.className = "record-card";
       
-      // 判斷備註中是否含有老媽
       const hasMom = (r.note || "").includes("老媽");
       let displayNote = r.note || "";
       if (hasMom) {
-        displayNote = `<span class="mom-tag">老媽款項</span> ` + displayNote.replace("老媽", "").trim();
+        displayNote = `<span class="mom-tag">老媽款項</span> ` + displayNote.replace(/老媽/g, "").replace(/^;\s*/, "").replace(/;\s*$/, "").trim();
       }
 
       card.innerHTML = `
@@ -742,6 +761,208 @@
     document.getElementById("btnCloseEditModal").addEventListener("click", closeEditModal);
   }
 
+  // Google 雲端試算表 JSONP 擷取器
+  function fetchSheetDataJSONP(sheetName) {
+    return new Promise((resolve, reject) => {
+      const cbName = "gvizCb_" + Math.random().toString(36).substring(2, 9);
+      const script = document.createElement("script");
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("連線逾時"));
+      }, 15000);
+
+      function cleanup() {
+        clearTimeout(timer);
+        delete window[cbName];
+        if (script.parentNode) script.parentNode.removeChild(script);
+      }
+
+      window[cbName] = function (res) {
+        cleanup();
+        if (res && res.table && res.table.rows) {
+          resolve(res.table.rows);
+        } else {
+          reject(new Error("試算表回傳格式錯誤"));
+        }
+      };
+
+      script.src = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${encodeURIComponent(sheetName)}&t=${Date.now()}`;
+      script.onerror = function () {
+        cleanup();
+        reject(new Error(`無法連線至工作表「${sheetName}」`));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  // 執行全量雲端試算表同步
+  async function syncFromGoogleSheets() {
+    const btnSync = document.getElementById("btnSyncCloud");
+    const btnModalSync = document.getElementById("btnModalSyncCloud");
+    const syncIcon = btnSync ? btnSync.querySelector(".sync-icon") : null;
+
+    if (syncIcon) syncIcon.classList.add("spinning");
+    if (btnSync) btnSync.disabled = true;
+    if (btnModalSync) btnModalSync.disabled = true;
+
+    showToast("⏳ 正在從 Google 雲端試算表下載最新資料...");
+
+    try {
+      // 平行拉取 3 個工作表
+      const [rowsMed, rowsHouse, rowsTransfer] = await Promise.all([
+        fetchSheetDataJSONP("就醫、照顧花費記帳"),
+        fetchSheetDataJSONP("家用花費、繳款紀錄"),
+        fetchSheetDataJSONP("老哥轉帳記錄")
+      ]);
+
+      // 1. 解析就醫照顧
+      const newMed = [];
+      let medId = 1;
+      for (const r of rowsMed) {
+        const c = r.c || [];
+        if (c.length < 5 || !c[1]) continue;
+        const d = parseDateString(c[1].v);
+        if (!d) continue;
+
+        const rawItem = String(c[2] && c[2].v ? c[2].v : "").trim();
+        let amt = Number(c[4] && c[4].v !== undefined ? c[4].v : 0) || 0;
+        const note = String(c[5] && c[5].v ? c[5].v : "").trim();
+        const mom = c[6] && c[6].v !== undefined ? c[6].v : null;
+
+        const notes = note ? [note] : [];
+        if (mom !== null && mom !== undefined && String(mom).trim() !== "") {
+          const momNum = Number(mom);
+          if (!isNaN(momNum)) {
+            amt += momNum;
+            notes.push("老媽");
+          } else {
+            notes.push(`老媽: ${mom}`);
+          }
+        }
+
+        let itemCat = "其他";
+        if (/看診|門診|回診|急診/.test(rawItem)) {
+          itemCat = "看診";
+          if (rawItem !== "看診") notes.unshift(`原項目: ${rawItem}`);
+        } else if (/長照/.test(rawItem)) {
+          itemCat = "長照費";
+          if (rawItem !== "長照費") notes.unshift(`原項目: ${rawItem}`);
+        } else if (/住院|急診預繳/.test(rawItem)) {
+          itemCat = "住院費";
+          if (rawItem !== "住院費") notes.unshift(`原項目: ${rawItem}`);
+        } else if (/看護/.test(rawItem)) {
+          itemCat = "看護費";
+          if (rawItem !== "看護費") notes.unshift(`原項目: ${rawItem}`);
+        } else {
+          itemCat = "其他";
+          if (rawItem && rawItem !== "其他") notes.unshift(`原項目: ${rawItem}`);
+        }
+
+        newMed.push({
+          id: `med_${medId++}`,
+          date: d,
+          item: itemCat,
+          amount: Math.round(amt),
+          note: notes.join("; ")
+        });
+      }
+
+      // 2. 解析家用花費
+      const newHouse = [];
+      let houseId = 1;
+      for (const r of rowsHouse) {
+        const c = r.c || [];
+        if (c.length < 6 || !c[1]) continue;
+        const d = parseDateString(c[1].v);
+        if (!d) continue;
+
+        const rawItem = String(c[2] && c[2].v ? c[2].v : "").trim();
+        const amt = Number(c[5] && c[5].v !== undefined ? c[5].v : 0) || 0;
+        const note = String(c[6] && c[6].v ? c[6].v : "").trim();
+        const notes = note ? [note] : [];
+
+        let itemCat = "其他";
+        if (rawItem.includes("台電")) {
+          itemCat = "台電";
+        } else if (rawItem.includes("中華電信")) {
+          itemCat = "中華電信";
+        } else if (rawItem.includes("瓦斯")) {
+          itemCat = "瓦斯";
+        } else if (rawItem.includes("北水") || rawItem.includes("水")) {
+          itemCat = "北水";
+        } else if (rawItem.includes("轉帳")) {
+          itemCat = "房貸轉帳";
+        } else if (rawItem.includes("墓園管理費")) {
+          itemCat = "墓園管理費";
+          if (rawItem.includes("土城")) notes.unshift("土城");
+          else if (rawItem.includes("八里")) notes.unshift("八里");
+        } else {
+          itemCat = "其他";
+          if (rawItem && rawItem !== "其他") notes.unshift(`原項目: ${rawItem}`);
+        }
+
+        newHouse.push({
+          id: `house_${houseId++}`,
+          date: d,
+          item: itemCat,
+          amount: Math.round(amt),
+          note: notes.join("; ")
+        });
+      }
+
+      // 3. 解析老哥轉帳
+      const newTransfer = [];
+      let transferId = 1;
+      for (const r of rowsTransfer) {
+        const c = r.c || [];
+        if (c.length < 7 || !c[1]) continue;
+        const d = parseDateString(c[1].v);
+        if (!d) continue;
+
+        const twd = c[6] && c[6].v !== undefined ? c[6].v : null;
+        const note = String(c[7] && c[7].v ? c[7].v : "").trim();
+        if (twd !== null && String(twd).trim() !== "") {
+          const amt = Number(twd);
+          if (!isNaN(amt)) {
+            newTransfer.push({
+              id: `transfer_${transferId++}`,
+              date: d,
+              amount: Math.round(amt),
+              note
+            });
+          }
+        }
+      }
+
+      // 更新全域狀態
+      appData = {
+        medicalCare: newMed,
+        household: newHouse,
+        transfers: newTransfer
+      };
+
+      saveData();
+      const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      localStorage.setItem("LAST_CLOUD_SYNC", nowStr);
+      updateSyncBadge();
+
+      // 重新繪製介面
+      renderDashboard();
+      renderMedicalList();
+      renderHouseholdList();
+      renderTransferList();
+
+      showToast("🎉 已成功從 Google 雲端試算表同步最新資料！");
+    } catch (err) {
+      console.error("雲端同步失敗:", err);
+      showToast("❌ 雲端同步失敗：" + err.message);
+    } finally {
+      if (syncIcon) syncIcon.classList.remove("spinning");
+      if (btnSync) btnSync.disabled = false;
+      if (btnModalSync) btnModalSync.disabled = false;
+    }
+  }
+
   // 設定與備份管理
   function setupBackupAndExport() {
     const backupModal = document.getElementById("backupModal");
@@ -751,6 +972,13 @@
     document.getElementById("btnCloseBackupModal").addEventListener("click", () => {
       backupModal.classList.remove("open");
     });
+
+    // 雲端同步按鈕綁定
+    const btnSyncCloud = document.getElementById("btnSyncCloud");
+    if (btnSyncCloud) btnSyncCloud.addEventListener("click", syncFromGoogleSheets);
+
+    const btnModalSyncCloud = document.getElementById("btnModalSyncCloud");
+    if (btnModalSyncCloud) btnModalSyncCloud.addEventListener("click", syncFromGoogleSheets);
 
     // 匯出 CSV (支援 Excel UTF-8 with BOM)
     function exportToCSV() {
@@ -848,14 +1076,12 @@
     setupForms();
     setupBackupAndExport();
 
-    // 初始渲染
     renderDashboard();
     renderMedicalList();
     renderHouseholdList();
     renderTransferList();
   }
 
-  // 待 DOM 載入後執行
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);
   } else {

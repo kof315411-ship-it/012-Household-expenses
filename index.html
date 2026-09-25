@@ -26,8 +26,11 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="btn btn-primary btn-sm" id="btnSyncCloud" title="從 Google 雲端試算表同步最新資料">
+          <span class="sync-icon">🔄</span> 同步雲端
+        </button>
         <button class="btn btn-secondary btn-sm" id="btnExport" title="匯出 Excel/CSV 資料">📥 匯出</button>
-        <button class="btn btn-secondary btn-sm" id="btnBackup" title="備份或重設資料">⚙️ 設定</button>
+        <button class="btn btn-secondary btn-sm" id="btnBackup" title="設定與雲端連結">⚙️ 設定</button>
       </div>
     </div>
   </header>
@@ -393,13 +396,25 @@
   <div class="modal-overlay" id="backupModal">
     <div class="modal-content">
       <div class="modal-head">
-        <h3 class="modal-title">⚙️ 資料管理與備份</h3>
+        <h3 class="modal-title">⚙️ 設定與雲端資料管理</h3>
         <button class="modal-close-btn" id="btnCloseBackupModal">&times;</button>
       </div>
       <div style="display: flex; flex-direction: column; gap: 14px;">
-        <p style="font-size: 0.88rem; color: var(--slate-600);">
-          本系統所有新增、修改的資料均自動儲存於您的瀏覽器本機中。您可以隨時匯出備份或下載 Excel/CSV 表格。
-        </p>
+        
+        <!-- 雲端試算表即時同步卡片 -->
+        <div style="background: var(--primary-light); padding: 14px; border-radius: var(--radius-sm); border: 1px solid rgba(37, 99, 235, 0.25);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <strong style="font-size: 0.95rem; color: var(--primary-dark);">☁️ Google 雲端試算表</strong>
+            <span id="syncBadge" style="font-size: 0.72rem; background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 9999px; font-weight: 600;">已連結</span>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--slate-600); margin-bottom: 10px; line-height: 1.4;">
+            直接與您的 Google 線上試算表即時連線。若雲端表格有更新項目或金額，點擊同步即可立即更新網頁與手機版面！
+          </p>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-primary btn-sm" id="btnModalSyncCloud">🔄 立即同步最新數據</button>
+            <a href="https://docs.google.com/spreadsheets/d/1wut51zEYI7Ij0aBbCx-b7fpEA_n0lhdMht7PtEjnGHY/edit?gid=933525900#gid=933525900" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration: none;">🔗 開啟雲端試算表</a>
+          </div>
+        </div>
 
         <div style="background: var(--slate-50); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
           <strong style="font-size: 0.9rem; display: block; margin-bottom: 6px;">📥 匯出資料檔案</strong>
@@ -411,10 +426,10 @@
 
         <div style="background: var(--slate-50); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
           <strong style="font-size: 0.9rem; display: block; margin-bottom: 6px;">📤 還原 JSON 備份檔</strong>
-          <input type="file" id="fileImportBackup" accept=".json" style="font-size: 0.85rem;">
+          <input type="file" id="fileImportBackup" accept=".json" style="font-size: 0.85rem; margin-top: 4px;">
         </div>
 
-        <div style="background: #fef2f2; padding: 12px; border-radius: var(--radius-sm); border: 1px solid #fecaca; margin-top: 10px;">
+        <div style="background: #fef2f2; padding: 12px; border-radius: var(--radius-sm); border: 1px solid #fecaca;">
           <strong style="font-size: 0.9rem; color: #b91c1c; display: block; margin-bottom: 4px;">⚠️ 資料重設</strong>
           <p style="font-size: 0.8rem; color: #7f1d1d; margin-bottom: 8px;">
             重設將清除瀏覽器中的自訂增修，回復為最初從 Excel 檔案匯入的原始數據。

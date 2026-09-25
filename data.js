@@ -1,4 +1,4 @@
-// 預設初始歷史資料集 (由 Excel 萃取匯入)
+// 預設初始歷史資料集 (由 Google 雲端試算表自動同步)
 window.INITIAL_DATA = {
   "medicalCare": [
     {
@@ -202,7 +202,7 @@ window.INITIAL_DATA = {
       "date": "2022-10-18",
       "item": "其他",
       "amount": 700,
-      "note": "原項目: 租借輪椅; 押金350、每月350; 老媽: 11/17要Line續借下個月"
+      "note": "原項目: 租借輪椅; 押金350、每月350"
     },
     {
       "id": "med_30",
@@ -314,7 +314,7 @@ window.INITIAL_DATA = {
       "date": "2022-11-12",
       "item": "看診",
       "amount": 600,
-      "note": "原項目: 馬偕回診; 老媽: 11/10要LINE續租輪椅"
+      "note": "原項目: 馬偕回診"
     },
     {
       "id": "med_46",
